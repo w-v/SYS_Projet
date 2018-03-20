@@ -1,0 +1,9 @@
+#!/bin/bash
+
+make all
+
+( bin/audioserver > log)& 
+
+padsp bin/audioguest
+
+
