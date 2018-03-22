@@ -1,56 +1,26 @@
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <audio.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <netdb.h>
+#include <audioguest.h>
 
 int main(){
-  int fd;
-
   int wri;
 
-  struct sockaddr_in to, from;
   char msg[128] = "test.wav";
   char packet[1024];
-  socklen_t flen;
-  socklen_t len;
+  struct dest_infos server;
 
-  flen = sizeof(struct sockaddr_in);
+  socket_guest_init( &server );
 
-  fd = socket(AF_INET,SOCK_DGRAM,0);
-  if (fd < 0) {
-    perror("Could not create socket to server");
-  }
+  if (!send_packet(msg, sizeof(msg), &server)){ 
 
-  to.sin_family = AF_INET;
-  to.sin_port = htons(47777);
-  to.sin_addr.s_addr = inet_addr("127.0.0.1");
-
-  len = sendto(fd, msg, sizeof(msg), 0, (struct sockaddr*) &to, flen);
-  if (len < 0){
-    perror("Could not send filename");
-  }
-  else{ 
     int info[3];
-    len = recvfrom(fd, info, sizeof(info), 0, (struct sockaddr*) &from, &flen); 
-    if (len < 0){
-      perror("Could not receive wav infos");
-    } 
-    if(info[0] == -1){
-      perror("Server says the file was not found");
-      exit(1); 
-    }
+    recv_packet(info, sizeof(info), &server);
+
+    if(info[0] == -1){            // dans le cas o� le filename n'est pas trouvé ar
+      perror("Server says the file was not found"); //le serveur, celui ci renvoie
+      exit(1);                                     // -1 dans le champs reservéau
+    }                                             // channel.
+
     int ok = 1;
-    len = sendto(fd, &ok, sizeof(int), 0, (struct sockaddr*) &from, flen);
-    if(len < 0){
-      perror("");
-    }       
+    send_packet(&ok, sizeof(int), &server);
 
     int fdw = aud_writeinit(info[0],info[1],info[2]);
     if(fdw < 0){
@@ -58,11 +28,8 @@ int main(){
     }       
 
     do{
-      len = recvfrom(fd, packet, sizeof(packet), 0, (struct sockaddr*) &from, &flen);	
-      if (len < 0){
-        perror("Could not receive wav packet");
-      }
-
+      
+      recv_packet(packet, sizeof(packet), &server);
 
       wri = write(fdw, packet , 1024);
       if (wri < 0) {
@@ -70,14 +37,31 @@ int main(){
         exit(1);
       }
 
-      len = sendto(fd, &ok, sizeof(ok), 0, (struct sockaddr*) &to, flen);
-      if (len < 0){
-        perror("Could not send ACK");
-      }
+      send_packet(&ok, sizeof(int), &server);
 
       usleep(1000);
+
     }while(1);
   }
+
+  return 0;
+}
+
+int socket_guest_init( struct dest_infos* server ){
+
+  server->fd = socket(AF_INET,SOCK_DGRAM,0);
+
+  server->flen = sizeof(struct sockaddr_in);
+
+  if (server->fd < 0) {
+
+     perror("Could not create socket to server");
+
+  }
+
+  (server->addr).sin_family = AF_INET;
+  (server->addr).sin_port = htons(47777);
+  (server->addr).sin_addr.s_addr = inet_addr("127.0.0.1");
 
   return 0;
 }

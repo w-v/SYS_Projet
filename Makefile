@@ -9,11 +9,11 @@ all: bin/audioserver bin/audioguest
 bin/lecteur: obj/lecteur.o obj/audio.o
 	gcc $(CFLAGS) -o bin/lecteur obj/lecteur.o obj/audio.o
 
-bin/audioserver: obj/audioserver.o obj/audio.o
-	gcc $(CFLAGS) -o bin/audioserver obj/audioserver.o obj/audio.o
+bin/audioserver: obj/audioserver.o obj/audio.o obj/socketlib.o
+	gcc $(CFLAGS) -o bin/audioserver obj/audioserver.o obj/audio.o obj/socketlib.o
 
-bin/audioguest: obj/audioguest.o obj/audio.o
-	gcc $(CFLAGS) -o bin/audioguest obj/audioguest.o obj/audio.o
+bin/audioguest: obj/audioguest.o obj/audio.o obj/socketlib.o
+	gcc $(CFLAGS) -o bin/audioguest obj/audioguest.o obj/audio.o obj/socketlib.o
 #
 # objets of tp lists
 #
@@ -29,6 +29,9 @@ obj/audioserver.o: src/audioserver.c
 
 obj/audioguest.o: src/audioguest.c
 	gcc $(CFLAGS) -I./include -c src/audioguest.c -o obj/audioguest.o
+
+obj/socketlib.o: src/socketlib.c
+	gcc $(CFLAGS) -I./include -c src/socketlib.c -o obj/socketlib.o
 
 #
 # remove files
