@@ -2,17 +2,17 @@
 # Link
 #
 
-CFLAGS = -Wall -g
+CFLAGS = -Wall -g 
 
 all: bin/audioserver bin/audioguest
 
 bin/lecteur: obj/lecteur.o obj/audio.o
 	gcc $(CFLAGS) -o bin/lecteur obj/lecteur.o obj/audio.o
 
-bin/audioserver: obj/audioserver.o
+bin/audioserver: obj/audioserver.o obj/audio.o
 	gcc $(CFLAGS) -o bin/audioserver obj/audioserver.o obj/audio.o
 
-bin/audioguest: obj/audioguest.o
+bin/audioguest: obj/audioguest.o obj/audio.o
 	gcc $(CFLAGS) -o bin/audioguest obj/audioguest.o obj/audio.o
 #
 # objets of tp lists
