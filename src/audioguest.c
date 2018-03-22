@@ -3,8 +3,8 @@
 int main(){
   int wri;
 
-  char msg[128] = "test.wav";
-  char packet[1024];
+  char msg[128] = "ring.wav";
+  struct audio_packet packet;
   struct dest_infos server;
 
   socket_guest_init( &server );
@@ -20,7 +20,6 @@ int main(){
     }                                             // channel.
 
     int ok = 1;
-    send_packet(&ok, sizeof(int), &server);
 
     int fdw = aud_writeinit(info[0],info[1],info[2]);
     if(fdw < 0){
@@ -31,7 +30,7 @@ int main(){
       
       recv_packet(packet, sizeof(packet), &server);
 
-      wri = write(fdw, packet , 1024);
+      wri = write(fdw, packet.audio , 1024);
       if (wri < 0) {
         perror("Could not write to speaker");
         exit(1);
@@ -41,7 +40,7 @@ int main(){
 
       usleep(1000);
 
-    }while(1);
+    }while(packet.header == 0);
   }
 
   return 0;

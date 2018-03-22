@@ -3,7 +3,7 @@
 int main(){
   int rea;
   char msg[128];
-  char packet[1024];
+  struct audio_packet packet;
   struct dest_infos client;
 
   //TODO : chemin absolu
@@ -15,7 +15,7 @@ int main(){
   strcat(prefixe,msg);
 
   if(access(prefixe, F_OK) == -1){
-    *( (int*) packet ) = -1;
+    packet.header = -1;
     send_packet(packet, sizeof(packet), &client);
   }
   else{
@@ -29,22 +29,27 @@ int main(){
 
     printf("%d %d %d",info[0], info[1], info[2]);
 
-    //TODO: un ptit timeout
-    send_packet(info, sizeof(info), &client);
-    recv_packet(msg, sizeof(msg), &client);
+    send_until_ack(info, sizeof(info), &client);
 
+    packet.header = 0;
     do{
-      rea = read(fdr, packet, 1024);
+
+      rea = read(fdr, packet.audio, 1024);
       if (rea < 0) {
         perror("Could not read wav file");
         exit(1);
       }
 
-      send_packet(packet, sizeof(packet), &client);
+      send_until_ack(packet, sizeof(packet), &client);
 
-      recv_packet(msg, sizeof(msg), &client);
+      
 
-    } while (1);
+    } while (rea != 0);
+
+    packet.header = 1;
+
+    send_until_ack(packet, sizeof(packet), &client)
+    
 
   }
   return 0;
