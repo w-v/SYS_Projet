@@ -25,7 +25,7 @@ struct dest_infos {
 
 struct audio_packet {
 
-  short int header; 
+  int header; 
   char audio[PACKET_SIZE];
 
 };
@@ -33,6 +33,3 @@ struct audio_packet {
 int send_packet( void * packet, short unsigned int size, struct dest_infos * infos);
 
 int recv_packet( void * packet, short unsigned int size, struct dest_infos * infos);
-
-int send_until_ack( void * packet, short unsigned int size, struct dest_infos * infos );
-

@@ -15,3 +15,5 @@
 #include <socketlib.h>
 
 int socket_guest_init( struct dest_infos* client );
+
+int req_until_ack( int req_n, struct audio_packet* packet, short unsigned int size, struct dest_infos * infos );

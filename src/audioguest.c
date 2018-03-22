@@ -1,10 +1,12 @@
 #include <audioguest.h>
 
-int main(){
+int main(char* argc[]){
   int wri;
+  int req_n = 1;
 
   char msg[128] = "ring.wav";
   struct audio_packet packet;
+  packet.header = 0;
   struct dest_infos server;
 
   socket_guest_init( &server );
@@ -19,8 +21,6 @@ int main(){
       exit(1);                                     // -1 dans le champs reservéau
     }                                             // channel.
 
-    int ok = 1;
-
     int fdw = aud_writeinit(info[0],info[1],info[2]);
     if(fdw < 0){
       perror("Could not get speaker's file descriptor");
@@ -28,7 +28,8 @@ int main(){
 
     do{
       
-      recv_packet(packet, sizeof(packet), &server);
+      req_until_ack(req_n, &packet, sizeof(packet), &server);
+      req_n += 1;
 
       wri = write(fdw, packet.audio , 1024);
       if (wri < 0) {
@@ -36,11 +37,10 @@ int main(){
         exit(1);
       }
 
-      send_packet(&ok, sizeof(int), &server);
-
       usleep(1000);
+      //printf("%d \n", packet.header);
 
-    }while(packet.header == 0);
+    }while(packet.header != -1);
   }
 
   return 0;
@@ -64,3 +64,36 @@ int socket_guest_init( struct dest_infos* server ){
 
   return 0;
 }
+
+
+int req_until_ack( int req_n, struct audio_packet* packet, short unsigned int size, struct dest_infos* infos ){
+
+  fd_set rfds;
+  struct timeval tv;// = {5};
+  int retval = 0;
+
+  tv.tv_usec = 0;
+  FD_ZERO(&rfds);
+
+  while(retval == 0 && !(FD_ISSET(infos->fd, &rfds)) && (packet->header != req_n)){
+
+    FD_ZERO(&rfds);
+    FD_SET(infos->fd, &rfds);
+    tv.tv_sec = 2;
+    
+    send_packet(&req_n, sizeof(req_n), infos);
+
+    retval = select(infos->fd+1, &rfds, NULL, NULL, &tv);
+
+    if (retval == -1){
+      perror("select() failed");
+      return 1;
+    }
+    else if ( (retval == 1) && FD_ISSET(infos->fd, &rfds))
+      recv_packet(packet, size, infos);
+
+  }
+  return 0;
+
+}
+
