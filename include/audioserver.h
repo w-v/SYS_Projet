@@ -15,3 +15,5 @@
 #include <socketlib.h>
 
 int socket_server_init( struct dest_infos* client );
+int treat_req(int* fds, struct dest_infos* client, char * filename);
+int recv_req();

@@ -7,18 +7,22 @@ int main(int argc, char* argv[]){
   }
 
   int wri;
-  int req_n = 1;
 
   char msg[128];
   struct audio_packet packet;
   packet.header = 0;
   struct dest_infos server;
+  struct request req;
+  
+  req.token = 0;
+  req.req_n = 1;
+  strcpy(req.filename, argv[2]);
 
   socket_guest_init( &server, argv[1]);
 
-  if (!send_packet(argv[2], sizeof(argv[2]), &server)){ 
+  if (!send_packet(&req, sizeof(req), &server)){ 
 
-    int info[3];
+    int info[4];
     recv_packet(info, sizeof(info), &server);
 
     if(info[0] == -1){            // dans le cas o√ le filename n'est pas trouv√© ar
@@ -30,11 +34,14 @@ int main(int argc, char* argv[]){
     if(fdw < 0){
       perror("Could not get speaker's file descriptor");
     }       
-
+    
+    // getting a token assigned
+    req.token = info[3];
+    
     do{
 
-      req_until_ack(req_n, &packet, sizeof(packet), &server);
-      req_n += 1;
+      req_until_ack(&req, sizeof(req), &packet, sizeof(packet), &server);
+      req.req_n += 1;
 
       wri = write(fdw, packet.audio , 1024);
       if (wri < 0) {
@@ -71,7 +78,7 @@ int socket_guest_init( struct dest_infos* server, char* hostname){
 }
 
 
-int req_until_ack( int req_n, struct audio_packet* packet, short unsigned int size, struct dest_infos* infos ){
+int req_until_ack( struct request* req, short unsigned int rsize, struct audio_packet* packet, short unsigned int size, struct dest_infos* infos ){
 
   fd_set rfds;
   struct timeval tv;// = {5};
@@ -80,14 +87,19 @@ int req_until_ack( int req_n, struct audio_packet* packet, short unsigned int si
   tv.tv_usec = 0;
   FD_ZERO(&rfds);
 
-  while(retval == 0 && !(FD_ISSET(infos->fd, &rfds)) && (packet->header != req_n)){
+  // until a packet is received and it is the requested one
+  while(retval == 0 && !(FD_ISSET(infos->fd, &rfds)) && (packet->header != req->req_n)){
 
     FD_ZERO(&rfds);
     FD_SET(infos->fd, &rfds);
     tv.tv_sec = 2;
+    
+    // send a request
+    send_packet(req, rsize, infos);
+    // printf("requesting packet %d with token %d \n",req->req_n, req->token);
 
-    send_packet(&req_n, sizeof(req_n), infos);
 
+    // wait until timeout or packet received
     retval = select(infos->fd+1, &rfds, NULL, NULL, &tv);
 
     if (retval == -1){
@@ -95,6 +107,7 @@ int req_until_ack( int req_n, struct audio_packet* packet, short unsigned int si
       return 1;
     }
     else if ( (retval == 1) && FD_ISSET(infos->fd, &rfds))
+      // packet received, read it
       recv_packet(packet, size, infos);
 
   }

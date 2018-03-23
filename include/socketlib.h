@@ -30,6 +30,14 @@ struct audio_packet {
 
 };
 
+struct request {
+
+  int token;
+  int req_n;
+  char filename[128];
+
+};
+
 int send_packet( void * packet, short unsigned int size, struct dest_infos * infos);
 
 int recv_packet( void * packet, short unsigned int size, struct dest_infos * infos);
