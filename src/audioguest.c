@@ -1,17 +1,22 @@
 #include <audioguest.h>
+int main(int argc, char* argv[]){
 
-int main(char* argc[]){
+  if(argc != 3){
+    printf("\nUsage : \n\n audioguest server_hostname file_name \n\n");
+    exit(1);
+  }
+
   int wri;
   int req_n = 1;
 
-  char msg[128] = "ring.wav";
+  char msg[128];
   struct audio_packet packet;
   packet.header = 0;
   struct dest_infos server;
 
-  socket_guest_init( &server );
+  socket_guest_init( &server, argv[1]);
 
-  if (!send_packet(msg, sizeof(msg), &server)){ 
+  if (!send_packet(argv[2], sizeof(argv[2]), &server)){ 
 
     int info[3];
     recv_packet(info, sizeof(info), &server);
@@ -27,7 +32,7 @@ int main(char* argc[]){
     }       
 
     do{
-      
+
       req_until_ack(req_n, &packet, sizeof(packet), &server);
       req_n += 1;
 
@@ -46,7 +51,7 @@ int main(char* argc[]){
   return 0;
 }
 
-int socket_guest_init( struct dest_infos* server ){
+int socket_guest_init( struct dest_infos* server, char* hostname){
 
   server->fd = socket(AF_INET,SOCK_DGRAM,0);
 
@@ -54,13 +59,13 @@ int socket_guest_init( struct dest_infos* server ){
 
   if (server->fd < 0) {
 
-     perror("Could not create socket to server");
+    perror("Could not create socket to server");
 
   }
 
   (server->addr).sin_family = AF_INET;
   (server->addr).sin_port = htons(47777);
-  (server->addr).sin_addr.s_addr = inet_addr("127.0.0.1");
+  (server->addr).sin_addr.s_addr = inet_addr(resolv_hostname(hostname));
 
   return 0;
 }
@@ -80,7 +85,7 @@ int req_until_ack( int req_n, struct audio_packet* packet, short unsigned int si
     FD_ZERO(&rfds);
     FD_SET(infos->fd, &rfds);
     tv.tv_sec = 2;
-    
+
     send_packet(&req_n, sizeof(req_n), infos);
 
     retval = select(infos->fd+1, &rfds, NULL, NULL, &tv);
@@ -97,3 +102,17 @@ int req_until_ack( int req_n, struct audio_packet* packet, short unsigned int si
 
 }
 
+char* resolv_hostname(const char *hostname) {
+  struct hostent *resolv;
+  struct in_addr *addr;
+  resolv = gethostbyname(hostname);
+  if (resolv==NULL) {
+    printf("host %s could not be resolved", hostname);
+    exit(1);
+  }
+  else {
+    addr = (struct in_addr*) resolv->h_addr_list[0];
+    printf("The IP address of %s is %s\n",hostname,inet_ntoa(*addr));
+    return inet_ntoa(*addr);
+  }
+}
