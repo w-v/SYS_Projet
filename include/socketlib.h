@@ -12,8 +12,9 @@
 #include <dirent.h> 
 #include <string.h>
 #include <sys/time.h>
+#include <math.h> 
 
-#define PACKET_SIZE 1024
+#define BUF_SIZE 1024
 
 struct dest_infos {
 
@@ -26,10 +27,27 @@ struct dest_infos {
 struct audio_packet {
 
   int header; 
-  char audio[PACKET_SIZE];
+  uint8_t audio[BUF_SIZE];
+
+};
+
+struct request {
+
+  int token;
+  int req_n;
+  char filename[128];
+
+};
+
+struct wav_params {
+
+  unsigned short int channels;
+  unsigned short int sample_size;
+  int sample_rate;
 
 };
 
 int send_packet( void * packet, short unsigned int size, struct dest_infos * infos);
 
 int recv_packet( void * packet, short unsigned int size, struct dest_infos * infos);
+
