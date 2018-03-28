@@ -11,6 +11,7 @@
 #include <netdb.h>
 #include <dirent.h> 
 #include <string.h>
+#include <ncurses.h>
 
 #include <netdb.h>
 
@@ -21,4 +22,8 @@ int socket_guest_init( struct dest_infos* server, char* hostname);
 int req_until_ack( struct request* req, short unsigned int rsize, struct audio_packet* packet, short unsigned int size, struct dest_infos* infos );
 
 char* resolv_hostname(const char *hostname); 
+
+void display_volume(char * volume);
+
+void compute_volume(char * volume, struct audio_packet * packet);
 

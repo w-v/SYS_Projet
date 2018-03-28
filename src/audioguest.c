@@ -1,12 +1,15 @@
 #include <audioguest.h>
 int main(int argc, char* argv[]){
 
+  initscr();
+  
   if(argc != 3){
     printf("\nUsage : \n\n audioguest server_hostname file_name \n\n");
     exit(1);
   }
 
   int wri;
+  char volume[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
   char msg[128];
   struct audio_packet packet;
@@ -53,6 +56,7 @@ int main(int argc, char* argv[]){
       //printf("%d \n", packet.header);
 
     }while(packet.header != -1);
+    endwin();
   }
 
   return 0;
@@ -125,7 +129,21 @@ char* resolv_hostname(const char *hostname) {
   }
   else {
     addr = (struct in_addr*) resolv->h_addr_list[0];
-    printf("The IP address of %s is %s\n",hostname,inet_ntoa(*addr));
+    //printf("The IP address of %s is %s\n",hostname,inet_ntoa(*addr));
     return inet_ntoa(*addr);
   }
+}
+
+
+void display_volume(char * volume){
+
+  for(int i = 0; i < 10; ++i){
+    if (volume[i] == 1)
+      mvaddch(15 - i, 1, 'M')
+  }
+  refresh();
+}
+
+void compute_display(char * volume, struct audio_packet * packet){
+  for
 }

@@ -13,7 +13,7 @@ bin/audioserver: obj/audioserver.o obj/audio.o obj/socketlib.o
 	gcc $(CFLAGS) -o bin/audioserver obj/audioserver.o obj/audio.o obj/socketlib.o
 
 bin/audioguest: obj/audioguest.o obj/audio.o obj/socketlib.o
-	gcc $(CFLAGS) -o bin/audioguest obj/audioguest.o obj/audio.o obj/socketlib.o
+	gcc $(CFLAGS) -o bin/audioguest obj/audioguest.o obj/audio.o obj/socketlib.o -lncurses
 #
 # objets of tp lists
 #
@@ -28,7 +28,7 @@ obj/audioserver.o: src/audioserver.c
 	gcc $(CFLAGS) -I./include -c src/audioserver.c -o obj/audioserver.o
 
 obj/audioguest.o: src/audioguest.c
-	gcc $(CFLAGS) -I./include -c src/audioguest.c -o obj/audioguest.o
+	gcc $(CFLAGS) -I./include -c src/audioguest.c -o obj/audioguest.o -lncurses
 
 obj/socketlib.o: src/socketlib.c
 	gcc $(CFLAGS) -I./include -c src/socketlib.c -o obj/socketlib.o
