@@ -1,4 +1,6 @@
 #include <audioguest.h>
+int fdw;
+struct dest_infos server;
 int main(int argc, char* argv[]){
 
   initscr();
@@ -8,17 +10,18 @@ int main(int argc, char* argv[]){
   noecho();
   curs_set(0);
 
-  if(argc != 3){
+  if(argc<3){
     printf("\nUsage : \n\n audioguest server_hostname file_name \n\n");
-    exit(1);
+    endwin();
+    clean_exit();
   }
 
   int wri;
   short int volume_user = 190;
 
   struct audio_packet packet;
+  struct audio_packet last;
   packet.header = 0;
-  struct dest_infos server;
   struct request req;
   struct wav_params params;
 
@@ -35,14 +38,14 @@ int main(int argc, char* argv[]){
 
     if(info[0] == -1){            // dans le cas o� le filename n'est pas trouvé ar
       perror("Server says the file was not found"); //le serveur, celui ci renvoie
-      exit(1);                                     // -1 dans le champs reservéau
+      clean_exit();                                    // -1 dans le champs reservéau 
     }                                             // channel.
 
     params.channels = info[2];
     params.sample_rate = info[0];
     params.sample_size = info[1];
 
-    int fdw = aud_writeinit(info[0],info[1],info[2]);
+    fdw = aud_writeinit(info[0],info[1],info[2]);
     if(fdw < 0){
       perror("Could not get speaker's file descriptor");
     }       
@@ -56,21 +59,23 @@ int main(int argc, char* argv[]){
       req.req_n += 1;
 
       get_input(&volume_user);
-      clear();
       change_volume(&packet, &params, volume_user);
   
       float volume_db[2] = {0,0};
       mesure_volume(volume_db, &params, &packet);
+
+      if(argc == 3) {
+        wri = write(fdw, packet.audio , BUF_SIZE);
+        if (wri < 0) {
+          perror("Could not write to speaker");
+          clean_exit();
+        }
+      }
+      visualizer_equalizer(&packet, &params);
       display_volume(volume_db, &params, &packet);
 
-      wri = write(fdw, packet.audio , BUF_SIZE);
-      if (wri < 0) {
-        perror("Could not write to speaker");
-        exit(1);
-      }
 
-
-      //usleep(1000);
+      usleep(1000);
       //printf("%d \n", packet.header);
 
     }while(packet.header != -1);
@@ -143,7 +148,8 @@ char* resolv_hostname(const char *hostname) {
   resolv = gethostbyname(hostname);
   if (resolv==NULL) {
     printf("host %s could not be resolved", hostname);
-    exit(1);
+    clean_exit();
+    exit(1); // makes the compiler happy
   }
   else {
     addr = (struct in_addr*) resolv->h_addr_list[0];
@@ -158,9 +164,9 @@ void display_volume(float* volume_db, struct wav_params* params, struct audio_pa
   getmaxyx(stdscr, h, w);
   for(int ch = 0; ch < params->channels; ch++){
     int level = (volume_db[ch]+60)*(h/60.f);      // diplaying level from 0 to -60 dB
-    mvprintw(3+ch,0,"ch: %d level: %d",ch,level);refresh();
+    //mvprintw(3+ch,0,"ch: %d level: %d",ch,level);refresh();
     for(int i = 0; i < level; ++i){
-      mvaddch(h - i, ch+40, 'M');
+      mvaddch(h - i, ch+1, 'M');
     }
   }
   refresh();
@@ -184,20 +190,20 @@ void mesure_volume(float* volume_db, struct wav_params* params, struct audio_pac
     // switch to other channel
     ch = (ch + 1) % params->channels;
   }
-  mvprintw(1,0,"vL: %f, vR: %f",volume_db[0],volume_db[1]);refresh();
+  //mvprintw(1,0,"vL: %f, vR: %f",volume_db[0],volume_db[1]);refresh();
   
   for(int ch = 0; ch < params->channels; ch++){             // for each channel 
     
     volume_db[ch] = 20.f*log10( volume_db[ch] / max_amp );      // convert sample value to dB level
   }
-  mvprintw(2,0,"vL: %f, vR: %f",volume_db[0],volume_db[1]);refresh();
+  //mvprintw(2,0,"vL: %f, vR: %f",volume_db[0],volume_db[1]);refresh();
 
 }
 
 void change_volume(struct audio_packet * packet, struct wav_params * params, int user_volume){
   float db = (((user_volume)/10.f)-20.f);
   float att = pow(10, (db / 20.f));
-  mvprintw(0,0,"u:%d db:%f att:%f",user_volume,db,att);
+  //mvprintw(0,0,"u:%d db:%f att:%f",user_volume,db,att);
 
   // TODO : make another case for 8 bit signed, possibly 32 bit float
   int nsmpl = (BUF_SIZE / sizeof(int16_t)); 
@@ -233,3 +239,102 @@ void get_input(short int * user_volume){
   else if (*user_volume < 0)
     *user_volume = 0;
 }
+
+void visualizer_equalizer(struct audio_packet * packet, struct wav_params * params){
+  if (params->channels == 2){
+    int chan = 0;
+    double * channels_f[2];
+    double channels_ft_out[2][256];
+    const double max_amp = (pow(2, params->sample_size - 1) - 1); 
+    double window;                                      
+    int nsmpl = (BUF_SIZE / sizeof(int16_t)); 
+    int16_t * smpl  = (int16_t *) packet->audio;
+    for (int i = 0; i < 2; i++){
+      channels_f[i] = fftw_alloc_real(nsmpl / 2);
+    }
+    for (int i = 0; i < nsmpl; i++){
+      window = 0.5f*( 1-cos( (2 * M_PI * i)/(nsmpl - 1) ) );                         // Hann window 
+      channels_f[chan][i/2] = (smpl[i] / max_amp) * window ;
+      chan = (chan + 1) % 2;
+    }
+    visualizer(channels_f,channels_ft_out);
+    //equalizer();
+  }
+  /*else {
+    float channels_FT [512];
+    float channels_f [1024];
+    for (int i = 0; i < BUF_SIZE; i++){
+      channels_f [packet->audio
+    }
+    visualizer();
+    equalizer();
+  }*/
+}
+
+void visualizer(double * channels_f[2], double channels_ft_out[2][256]){
+  int nsmpl = (BUF_SIZE / sizeof(int16_t)); 
+  fftw_complex * channels_FT;
+  double channels_ft_out_db[128];
+  fftw_plan plan;
+  for (int i = 0; i < 2; i++){
+    channels_FT = fftw_alloc_complex(nsmpl/2);
+    for (int j = 0; j < (nsmpl / 2); j++){
+      channels_FT[j] = 0;
+    }
+    plan = fftw_plan_dft_r2c_1d(nsmpl/2, channels_f[i], channels_FT, 0); 
+    fftw_execute(plan);
+    for (int j = 0; j < nsmpl / 2; j++){
+      channels_ft_out[i][j] = cabs(channels_FT[j]);
+    }
+    
+  }
+  
+  for (int j = 0; j < nsmpl / 4; j++){
+    if(channels_ft_out[0][j] < channels_ft_out[1][j]){
+      channels_ft_out_db[j] = 20 * log10(channels_ft_out[1][j] * 10);
+    }
+    else {
+      channels_ft_out_db[j] = 20 * log10(channels_ft_out[0][j] * 10);
+    }
+  }
+
+  int w, h;
+  getmaxyx(stdscr, h, w);
+  w -= 3;
+  h-= 1;
+  double bar_h;
+  int bin_per_bar = (nsmpl / 4)/w;
+  
+  clear();
+  
+  for(int i = 0; i < nsmpl / 4; i++){
+    bar_h = 0;
+    
+    // average BUF_SIZE bins into w bars
+    /*for(int a = 0; a < bin_per_bar; a++){
+      bar_h += channels_ft_out_db[i*bin_per_bar+a] / bin_per_bar;
+    } */
+    
+    for(int r = 0; r < (int) (channels_ft_out_db[i]);r++ ){
+      
+      mvaddch(h-r,i+3, 'W');
+
+    }
+
+
+  }
+  refresh();
+  
+}
+
+void clean_exit(){
+
+  close(fdw);
+  close(server.fd);
+  printf("exiting... \n");
+  sleep(1);                     // to be able to read perror before ncurses ends the window thus erasing the error message
+  endwin();
+  exit(1);
+
+}
+

@@ -13,6 +13,8 @@
 #include <string.h>
 #include <sys/time.h>
 #include <math.h> 
+#include <complex.h> 
+#include <fftw3.h> 
 
 #define BUF_SIZE 1024
 

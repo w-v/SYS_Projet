@@ -1,2 +1,2 @@
-vim -O src/audioserver.c src/audioguest.c
+vim -p include/* src/*
 

@@ -2,8 +2,13 @@
 
 make all
 
+if [[ $? -ne 0 ]]; then
+  exit;
+fi
+
 ( bin/audioserver > log)& 
 
-padsp bin/audioguest
+bin/audioguest localhost test.wav
 
+killall -9 bin/audioserver
 

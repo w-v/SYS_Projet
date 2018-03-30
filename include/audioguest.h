@@ -30,3 +30,9 @@ void mesure_volume(float* volume_db, struct wav_params* params, struct audio_pac
 void change_volume(struct audio_packet * packet, struct wav_params * params, int user_volume);
 
 void get_input(short int * user_volume);
+
+void visualizer_equalizer(struct audio_packet * packet, struct wav_params * params);
+
+void visualizer(double * channels_f[2], double channels_ft_out[2][256]);
+
+void clean_exit();
