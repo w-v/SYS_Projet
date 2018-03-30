@@ -1,4 +1,7 @@
 #include <audioguest.h>
+float last_3_smpls[2][3];
+float last_3_modified_smpls[2][3];
+
 int fdw;
 struct dest_infos server;
 int main(int argc, char* argv[]){
@@ -18,9 +21,11 @@ int main(int argc, char* argv[]){
 
   int wri;
   short int volume_user = 190;
+  //float qs[10] = {12000000,12000000,12000000,12000000,12000000,12000000,12000000,12000000,12000000,12000000};
+//  float qs[10] = {1,12,12,12,12,12,12,12,12,1};
+    float qs[10] = {3,3,3,3,3,3,3,3,3,3};
 
   struct audio_packet packet;
-  struct audio_packet last;
   packet.header = 0;
   struct request req;
   struct wav_params params;
@@ -64,6 +69,8 @@ int main(int argc, char* argv[]){
       float volume_db[2] = {0,0};
       mesure_volume(volume_db, &params, &packet);
 
+      visualize_equalize(&packet, &params, qs);
+
       if(argc == 3) {
         wri = write(fdw, packet.audio , BUF_SIZE);
         if (wri < 0) {
@@ -71,7 +78,6 @@ int main(int argc, char* argv[]){
           clean_exit();
         }
       }
-      visualizer_equalizer(&packet, &params);
       display_volume(volume_db, &params, &packet);
 
 
@@ -160,8 +166,7 @@ char* resolv_hostname(const char *hostname) {
 
 
 void display_volume(float* volume_db, struct wav_params* params, struct audio_packet* packet){
-  int w, h;
-  getmaxyx(stdscr, h, w);
+  int h = getmaxy(stdscr);
   for(int ch = 0; ch < params->channels; ch++){
     int level = (volume_db[ch]+60)*(h/60.f);      // diplaying level from 0 to -60 dB
     //mvprintw(3+ch,0,"ch: %d level: %d",ch,level);refresh();
@@ -240,7 +245,7 @@ void get_input(short int * user_volume){
     *user_volume = 0;
 }
 
-void visualizer_equalizer(struct audio_packet * packet, struct wav_params * params){
+void visualize_equalize(struct audio_packet * packet, struct wav_params * params, float qs[10]){
   if (params->channels == 2){
     int chan = 0;
     double * channels_f[2];
@@ -254,11 +259,22 @@ void visualizer_equalizer(struct audio_packet * packet, struct wav_params * para
     }
     for (int i = 0; i < nsmpl; i++){
       window = 0.5f*( 1-cos( (2 * M_PI * i)/(nsmpl - 1) ) );                         // Hann window 
-      channels_f[chan][i/2] = (smpl[i] / max_amp) * window ;
+      channels_f[chan][i/2] = (smpl[i] / max_amp);// * window ;
       chan = (chan + 1) % 2;
     }
-    visualizer(channels_f,channels_ft_out);
-    //equalizer();
+    equalize(channels_f,params, qs);
+    for(int c = 0; c < 2; c++){
+      for (int s = 0; s < 512; s += 2){
+        int16_t tmp = (channels_f[c][s/2]) * max_amp;
+          if (abs(tmp) < max_amp)
+            smpl[s + c] = tmp;
+          else if (tmp > 0)
+            smpl[s + c] = max_amp; 
+          else
+            smpl[s + c] = (-1) * max_amp; 
+      }
+    }
+    visualize(channels_f,channels_ft_out);
   }
   /*else {
     float channels_FT [512];
@@ -271,7 +287,7 @@ void visualizer_equalizer(struct audio_packet * packet, struct wav_params * para
   }*/
 }
 
-void visualizer(double * channels_f[2], double channels_ft_out[2][256]){
+void visualize(double * channels_f[2], double channels_ft_out[2][256]){
   int nsmpl = (BUF_SIZE / sizeof(int16_t)); 
   fftw_complex * channels_FT;
   double channels_ft_out_db[128];
@@ -291,10 +307,10 @@ void visualizer(double * channels_f[2], double channels_ft_out[2][256]){
   
   for (int j = 0; j < nsmpl / 4; j++){
     if(channels_ft_out[0][j] < channels_ft_out[1][j]){
-      channels_ft_out_db[j] = 20 * log10(channels_ft_out[1][j] * 10);
+      channels_ft_out_db[j] = 20 * log10(channels_ft_out[0][j]);
     }
     else {
-      channels_ft_out_db[j] = 20 * log10(channels_ft_out[0][j] * 10);
+      channels_ft_out_db[j] = 20 * log10(channels_ft_out[0][j]);
     }
   }
 
@@ -302,22 +318,20 @@ void visualizer(double * channels_f[2], double channels_ft_out[2][256]){
   getmaxyx(stdscr, h, w);
   w -= 3;
   h-= 1;
-  double bar_h;
-  int bin_per_bar = (nsmpl / 4)/w;
   
   clear();
   
   for(int i = 0; i < nsmpl / 4; i++){
-    bar_h = 0;
     
     // average BUF_SIZE bins into w bars
     /*for(int a = 0; a < bin_per_bar; a++){
       bar_h += channels_ft_out_db[i*bin_per_bar+a] / bin_per_bar;
     } */
     
-    for(int r = 0; r < (int) (channels_ft_out_db[i]);r++ ){
+    int peak = h-(channels_ft_out_db[i]-20.f)*(-1.f)*(h/110.f);
+    for(int r = 0; r < peak;r++ ){
       
-      mvaddch(h-r,i+3, 'W');
+      mvaddch(h-r,i+4, 'W');
 
     }
 
@@ -338,3 +352,85 @@ void clean_exit(){
 
 }
 
+void equalize(double* channels_f[2], struct wav_params * params, float qs[10]){
+
+  double channels_acc[2][256];
+  for(int c = 0; c < 2; c++){
+    for(int s = 0; s < 256; s++){
+      channels_acc[c][s] = 0;
+    }
+  }
+  float ffreq[10] = {31.5, 63, 125,250,500,1000,2000,4000,8000,16000};
+  float gains[10] = {1,1,1,1,1,1,1,1,1,1};
+  
+  struct filter_coeffs fc;
+  float w0;
+
+  for(int f = 4; f < 6; f++){
+    w0 = 2 * M_PI * ffreq[f] / params->sample_rate;
+    fc.cos_w0 = cos(w0);
+    fc.sin_w0 = sin(w0);
+    fc.alpha = fc.sin_w0 / (2 * qs[f]);
+    if (f == 0)
+      hpf(&fc);
+    else if (f == 9)
+      lpf(&fc);
+    else
+      bpf(&fc);
+    for(int c = 0; c < params->channels; c++){ 
+      for(int s = 0; s < 256; s++){
+        compute_apply_filter(&fc, channels_f[c][s], c);
+        channels_acc[c][s] = channels_acc[c][s] + last_3_modified_smpls[c][0];
+        //channels_f[c][s] = last_3_modified_smpls[c][0];
+      }
+    }
+  }
+  //return;
+  for(int c = 0; c < 2; c++){
+    for(int s = 0; s < 256; s++){
+      channels_f[c][s] = channels_acc[c][s]*0.5;
+    }
+  /*last_3_modified_smpls[c][2] = channels_f[c][253];
+  last_3_modified_smpls[c][1] = channels_f[c][254];
+  last_3_modified_smpls[c][0] = channels_f[c][255];*/
+  }
+  
+}
+
+void bpf(struct filter_coeffs* fc){
+  fc->b0 = fc->sin_w0 / 2;
+  fc->b1 = 0;
+  fc->b2 = (-1)*fc->sin_w0 / 2;
+  fc->a0 = 1 + fc->alpha;
+  fc->a1 = (-2) * fc->cos_w0;
+  fc->a2 = 1 - fc->alpha; 
+}
+void hpf(struct filter_coeffs*  fc){
+  fc->a0 = 1 + fc->alpha; 
+  fc->a1 = (-2) * fc->cos_w0; 
+  fc->a2 = 1 - fc->alpha;
+  fc->b0 = (1 + fc->cos_w0) / 2;
+  fc->b1 = -(1 + fc->cos_w0);
+  fc->b2 = (1 + fc->cos_w0) / 2;
+}
+void lpf(struct filter_coeffs* fc){
+  fc->b0 =  (1 - fc->cos_w0)/2;
+  fc->b1 =   1 - fc->cos_w0;
+  fc->b2 =  (1 - fc->cos_w0)/2;
+  fc->a0 =   1 + fc->alpha;
+  fc->a1 =  (-2)*fc->cos_w0;
+  fc->a2 =   1 - fc->alpha;
+}
+
+void compute_apply_filter(struct filter_coeffs* fc, float sample, int ch){
+  last_3_smpls[ch][2] = last_3_smpls[ch][1];
+  last_3_smpls[ch][1] = last_3_smpls[ch][0];
+  last_3_smpls[ch][0] = sample;
+  last_3_modified_smpls[ch][2] = last_3_modified_smpls[ch][1];
+  last_3_modified_smpls[ch][1] = last_3_modified_smpls[ch][0];
+  last_3_modified_smpls[ch][0] = (fc->b0 / fc->a0 * last_3_smpls[ch][0]) +
+  (fc->b1 / fc->a0 * last_3_smpls[ch][1]) +
+  (fc->b2 / fc->a0 * last_3_smpls[ch][2]) -
+  (fc->a1 / fc->a0 * last_3_modified_smpls[ch][1]) -
+  (fc->a2 / fc->a0 * last_3_modified_smpls[ch][2]);
+}

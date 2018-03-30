@@ -31,8 +31,34 @@ void change_volume(struct audio_packet * packet, struct wav_params * params, int
 
 void get_input(short int * user_volume);
 
-void visualizer_equalizer(struct audio_packet * packet, struct wav_params * params);
+void visualize_equalize(struct audio_packet * packet, struct wav_params * params, float* gain);
 
-void visualizer(double * channels_f[2], double channels_ft_out[2][256]);
+void visualize(double * channels_f[2], double channels_ft_out[2][256]);
 
 void clean_exit();
+
+struct filter_coeffs {
+
+  float b0;
+  float b1;
+  float b2;
+  float a0;
+  float a1;
+  float a2;
+
+  float alpha;
+  float cos_w0;
+  float sin_w0;
+
+};
+
+void compute_apply_filter(struct filter_coeffs* fc, float sample, int ch);
+
+void bpf(struct filter_coeffs* fc);
+
+void hpf(struct filter_coeffs*  fc);
+
+void lpf(struct filter_coeffs* fc);
+
+void equalize(double* channels_f[2], struct wav_params * params, float gains[10]);
+
