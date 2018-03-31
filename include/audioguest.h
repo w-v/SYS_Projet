@@ -52,7 +52,7 @@ struct filter_coeffs {
 
 };
 
-void compute_apply_filter(struct filter_coeffs* fc, float sample, int ch);
+void compute_apply_filter(struct filter_coeffs* fc, float sample, int ch, int f);
 
 void bpf(struct filter_coeffs* fc);
 

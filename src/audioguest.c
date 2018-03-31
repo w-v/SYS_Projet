@@ -1,9 +1,10 @@
 #include <audioguest.h>
 float last_3_smpls[2][3];
-float last_3_modified_smpls[2][3];
+float last_3_modified_smpls[10][2][3];
 
 int fdw;
 struct dest_infos server;
+int clip = 0;
 int main(int argc, char* argv[]){
 
   initscr();
@@ -23,7 +24,7 @@ int main(int argc, char* argv[]){
   short int volume_user = 190;
   //float qs[10] = {12000000,12000000,12000000,12000000,12000000,12000000,12000000,12000000,12000000,12000000};
 //  float qs[10] = {1,12,12,12,12,12,12,12,12,1};
-    float qs[10] = {3,3,3,3,3,3,3,3,3,3};
+    float qs[10] = {2,2,2,2,2,2,2,2,2,2};
 
   struct audio_packet packet;
   packet.header = 0;
@@ -33,6 +34,11 @@ int main(int argc, char* argv[]){
   req.token = 0;
   req.req_n = 1;
   strcpy(req.filename, argv[2]);
+  //if (argv[3] == 0)
+  req.mono = 0;
+  int delay[] =  {1000,10500};             // mono : 10ms, stereo : 1ms
+  //else
+  //  req.mono = 1;
 
   socket_guest_init( &server, argv[1]);
 
@@ -46,11 +52,14 @@ int main(int argc, char* argv[]){
       clean_exit();                                    // -1 dans le champs reservéau 
     }                                             // channel.
 
+    //mvprintw(0,0,"%d", info[2]);
     params.channels = info[2];
     params.sample_rate = info[0];
     params.sample_size = info[1];
 
-    fdw = aud_writeinit(info[0],info[1],info[2]);
+    if(argc == 3){
+      fdw = aud_writeinit(info[0],info[1],info[2]);
+    }
     if(fdw < 0){
       perror("Could not get speaker's file descriptor");
     }       
@@ -71,7 +80,7 @@ int main(int argc, char* argv[]){
 
       visualize_equalize(&packet, &params, qs);
 
-      if(argc == 3) {
+      if(argc == 3){
         wri = write(fdw, packet.audio , BUF_SIZE);
         if (wri < 0) {
           perror("Could not write to speaker");
@@ -81,7 +90,7 @@ int main(int argc, char* argv[]){
       display_volume(volume_db, &params, &packet);
 
 
-      usleep(1000);
+      usleep(delay[req.mono]);
       //printf("%d \n", packet.header);
 
     }while(packet.header != -1);
@@ -180,43 +189,47 @@ void display_volume(float* volume_db, struct wav_params* params, struct audio_pa
 void mesure_volume(float* volume_db, struct wav_params* params, struct audio_packet* packet){
 
 
+  if (params->channels == 2){
 
-  // TODO : make another case for 8 bit signed, possibly 32 bit float
-  const int max_amp = pow(2,params->sample_size-1); 
-  int nsmpl = (BUF_SIZE / sizeof(int16_t)); 
-  int16_t * smpl  = (int16_t *) packet->audio;
-  int ch = 0;
-  // find the maximum for each channel
-  for (int i = 0; i < nsmpl; i++){
-    
-    if( smpl[i] > volume_db[ch] )
-      volume_db[ch] = smpl[i];
+    // TODO : make another case for 8 bit signed, possibly 32 bit float
+    const int max_amp = pow(2,params->sample_size-1); 
+    int nsmpl = (BUF_SIZE / sizeof(int16_t)); 
+    int16_t * smpl  = (int16_t *) packet->audio;
+    int ch = 0;
+    // find the maximum for each channel
+    for (int i = 0; i < nsmpl; i++){
 
-    // switch to other channel
-    ch = (ch + 1) % params->channels;
+      if( smpl[i] > volume_db[ch] )
+        volume_db[ch] = smpl[i];
+
+      // switch to other channel
+      ch = (ch + 1) % params->channels;
+    }
+    //mvprintw(1,0,"vL: %f, vR: %f",volume_db[0],volume_db[1]);refresh();
+
+    for(int ch = 0; ch < params->channels; ch++){             // for each channel 
+
+      volume_db[ch] = 20.f*log10( volume_db[ch] / max_amp );      // convert sample value to dB level
+    }
+    //mvprintw(2,0,"vL: %f, vR: %f",volume_db[0],volume_db[1]);refresh();
   }
-  //mvprintw(1,0,"vL: %f, vR: %f",volume_db[0],volume_db[1]);refresh();
-  
-  for(int ch = 0; ch < params->channels; ch++){             // for each channel 
-    
-    volume_db[ch] = 20.f*log10( volume_db[ch] / max_amp );      // convert sample value to dB level
-  }
-  //mvprintw(2,0,"vL: %f, vR: %f",volume_db[0],volume_db[1]);refresh();
 
 }
 
 void change_volume(struct audio_packet * packet, struct wav_params * params, int user_volume){
-  float db = (((user_volume)/10.f)-20.f);
-  float att = pow(10, (db / 20.f));
-  //mvprintw(0,0,"u:%d db:%f att:%f",user_volume,db,att);
+  if (params->channels == 2){
+    float db = (((user_volume)/10.f)-20.f);
+    float att = pow(10, (db / 20.f));
+    //mvprintw(0,0,"u:%d db:%f att:%f",user_volume,db,att);
 
-  // TODO : make another case for 8 bit signed, possibly 32 bit float
-  int nsmpl = (BUF_SIZE / sizeof(int16_t)); 
-  int16_t * smpl  = (int16_t *) packet->audio;
+    // TODO : make another case for 8 bit signed, possibly 32 bit float
+    int nsmpl = (BUF_SIZE / sizeof(int16_t)); 
+    int16_t * smpl  = (int16_t *) packet->audio;
 
-  for (int i = 0; i < nsmpl; i++){
-    // change volume
-    smpl[i] *= att;
+    for (int i = 0; i < nsmpl; i++){
+      // change volume
+      smpl[i] *= att;
+    }
   }
 
 
@@ -268,10 +281,14 @@ void visualize_equalize(struct audio_packet * packet, struct wav_params * params
         int16_t tmp = (channels_f[c][s/2]) * max_amp;
           if (abs(tmp) < max_amp)
             smpl[s + c] = tmp;
-          else if (tmp > 0)
+          else if (tmp > 0){
+            clip++;
             smpl[s + c] = max_amp; 
-          else
+          }
+          else {
+            clip++;
             smpl[s + c] = (-1) * max_amp; 
+          }
       }
     }
     visualize(channels_f,channels_ft_out);
@@ -320,6 +337,7 @@ void visualize(double * channels_f[2], double channels_ft_out[2][256]){
   h-= 1;
   
   clear();
+  mvprintw(0,w-5,"clip:%d",clip);
   
   for(int i = 0; i < nsmpl / 4; i++){
     
@@ -353,11 +371,18 @@ void clean_exit(){
 }
 
 void equalize(double* channels_f[2], struct wav_params * params, float qs[10]){
+  
+
+  /* TODO
+   *
+   * MEMCPY MUFUCKA !!!!!!!!!!!!!!!
+   *
+   */
 
   double channels_acc[2][256];
   for(int c = 0; c < 2; c++){
     for(int s = 0; s < 256; s++){
-      channels_acc[c][s] = 0;
+      channels_acc[c][s] = channels_f[c][s];
     }
   }
   float ffreq[10] = {31.5, 63, 125,250,500,1000,2000,4000,8000,16000};
@@ -365,8 +390,20 @@ void equalize(double* channels_f[2], struct wav_params * params, float qs[10]){
   
   struct filter_coeffs fc;
   float w0;
+  
+  
+  float last_3_smpls_orig[2][3];
 
-  for(int f = 4; f < 6; f++){
+  for(int c = 0; c < 2; c++){
+    for(int s = 0; s < 3; s++){
+      last_3_smpls_orig[c][s] = last_3_smpls[c][s];
+    }
+  }
+  
+  
+
+  for(int f = 0; f < 10; f++){
+
     w0 = 2 * M_PI * ffreq[f] / params->sample_rate;
     fc.cos_w0 = cos(w0);
     fc.sin_w0 = sin(w0);
@@ -379,20 +416,25 @@ void equalize(double* channels_f[2], struct wav_params * params, float qs[10]){
       bpf(&fc);
     for(int c = 0; c < params->channels; c++){ 
       for(int s = 0; s < 256; s++){
-        compute_apply_filter(&fc, channels_f[c][s], c);
-        channels_acc[c][s] = channels_acc[c][s] + last_3_modified_smpls[c][0];
+        compute_apply_filter(&fc, channels_f[c][s], c, f);
+        // parallel
+        channels_acc[c][s] = channels_acc[c][s] + (last_3_modified_smpls[f][c][0]
+        * 1.8);
+        // cascade
         //channels_f[c][s] = last_3_modified_smpls[c][0];
       }
     }
+    for(int c = 0; c < 2; c++){
+      for(int s = 0; s < 3; s++){
+        last_3_smpls[c][s] = last_3_smpls_orig[c][s];
+      }
+    }
   }
-  //return;
+
   for(int c = 0; c < 2; c++){
     for(int s = 0; s < 256; s++){
-      channels_f[c][s] = channels_acc[c][s]*0.5;
+      channels_f[c][s] = channels_acc[c][s] * 0.01;
     }
-  /*last_3_modified_smpls[c][2] = channels_f[c][253];
-  last_3_modified_smpls[c][1] = channels_f[c][254];
-  last_3_modified_smpls[c][0] = channels_f[c][255];*/
   }
   
 }
@@ -422,15 +464,15 @@ void lpf(struct filter_coeffs* fc){
   fc->a2 =   1 - fc->alpha;
 }
 
-void compute_apply_filter(struct filter_coeffs* fc, float sample, int ch){
+void compute_apply_filter(struct filter_coeffs* fc, float sample, int ch, int f){
   last_3_smpls[ch][2] = last_3_smpls[ch][1];
   last_3_smpls[ch][1] = last_3_smpls[ch][0];
   last_3_smpls[ch][0] = sample;
-  last_3_modified_smpls[ch][2] = last_3_modified_smpls[ch][1];
-  last_3_modified_smpls[ch][1] = last_3_modified_smpls[ch][0];
-  last_3_modified_smpls[ch][0] = (fc->b0 / fc->a0 * last_3_smpls[ch][0]) +
+  last_3_modified_smpls[f][ch][2] = last_3_modified_smpls[f][ch][1];
+  last_3_modified_smpls[f][ch][1] = last_3_modified_smpls[f][ch][0];
+  last_3_modified_smpls[f][ch][0] = (fc->b0 / fc->a0 * last_3_smpls[ch][0]) +
   (fc->b1 / fc->a0 * last_3_smpls[ch][1]) +
   (fc->b2 / fc->a0 * last_3_smpls[ch][2]) -
-  (fc->a1 / fc->a0 * last_3_modified_smpls[ch][1]) -
-  (fc->a2 / fc->a0 * last_3_modified_smpls[ch][2]);
+  (fc->a1 / fc->a0 * last_3_modified_smpls[f][ch][1]) -
+  (fc->a2 / fc->a0 * last_3_modified_smpls[f][ch][2]);
 }

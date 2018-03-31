@@ -38,6 +38,7 @@ struct request {
   int token;
   int req_n;
   char filename[128];
+  int mono;   // 1 is mono, 0 is stereo
 
 };
 

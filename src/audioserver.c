@@ -52,7 +52,7 @@ int recv_req(){
         // give it the client's address so it can send packets to him
 
         close(fds[1]);
-        treat_req(fds, &client, req.filename);
+        treat_req(fds, &client, &req);
         exit(0);
 
       }
@@ -94,13 +94,12 @@ int recv_req(){
 }
 
 
-int treat_req(int* fds, struct dest_infos* client, char * filename){
+int treat_req(int* fds, struct dest_infos* client, struct request* req_guest){
   struct audio_packet packet;
   int rea;
   //TODO : chemin absolu
   char prefixe[134] = "audio/";
-  strcat(prefixe,filename);
-
+  strcat(prefixe,req_guest->filename);
   if(access(prefixe, F_OK) == -1){
     packet.header = -1;
     send_packet(&packet, sizeof(packet), client);
@@ -113,7 +112,12 @@ int treat_req(int* fds, struct dest_infos* client, char * filename){
     int fdr = aud_readinit( filename,&(info[0]),&(info[1]),&(info[2]));
     if(fdr < 0){
       perror("Could not get speaker's file descriptor");
-    }       
+    }
+
+    //mvprintw(0,1,"%d");
+    if(req_guest->mono == 1){
+      info[2] = 1;
+    } 
 
     printf("%d %d %d",info[0], info[1], info[2]);
 
@@ -131,10 +135,35 @@ int treat_req(int* fds, struct dest_infos* client, char * filename){
 
       if(packet.header + 1 == req.req_n){
         packet.header++;
-        rea = read(fdr, packet.audio, BUF_SIZE);
-        if (rea < 0) {
-          perror("Could not read wav file");
-          exit(1);
+        if(req_guest->mono == 0){
+          rea = read(fdr, packet.audio, BUF_SIZE);
+          if (rea < 0) {
+            perror("Could not read wav file");
+            exit(1);
+          }
+        }
+        else{
+          struct audio_packet tmp;
+          rea = read(fdr, tmp.audio, BUF_SIZE);
+          if (rea < 0) {
+            perror("Could not read wav file");
+            exit(1);
+          }
+          for (int i = 0; i < 512; i += (info[1]/8) ){
+            packet.audio[i] = tmp.audio[2 * i];
+            if(info[1] == 16)
+              packet.audio[i + 1] = tmp.audio[(2 * i) + 1];
+          }
+          rea = read(fdr, tmp.audio, BUF_SIZE);
+          if (rea < 0) {
+            perror("Could not read wav file");
+            exit(1);
+          }
+          for (int i = 0; i < 512; i += (info[1]/8) ){
+            packet.audio[512 + i] = tmp.audio[2 * i];
+            if(info[1] == 16)
+              packet.audio[512 + i + 1] = tmp.audio[(2 * i) + 1];
+          }
         }
       }
 
