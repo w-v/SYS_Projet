@@ -17,6 +17,9 @@
 
 #include <socketlib.h>
 
+#define WIN_SIZE        2
+#define LOW_FREQ        25
+
 int socket_guest_init( struct dest_infos* server, char* hostname);
 
 int req_until_ack( struct request* req, short unsigned int rsize, struct audio_packet* packet, short unsigned int size, struct dest_infos* infos );
@@ -29,9 +32,18 @@ void mesure_volume(float* volume_db, struct audio_packet* packet);
 
 void change_volume(struct audio_packet * packet, int user_volume);
 
-void get_input(short int * user_volume);
+struct settings {
 
-void visualize_equalize(struct audio_packet * packet, float* gain);
+  short int vol;
+  uint8_t eq_on;
+
+};
+
+void log_scale(double * unscaled, int size_unscaled, double * scaled, int size_scaled);
+
+void get_input(struct settings * usettings);
+
+void visualize_window(uint8_t * crt_packet, uint8_t window[WIN_SIZE][BUF_SIZE], int packet_id);
 
 void visualize(uint8_t * audio, int audio_size);
 
@@ -70,3 +82,4 @@ void equalize(uint8_t * audio, int audio_size);
 void char_to_float(uint8_t * audio, int audio_size, double ** audio_f);
 
 void float_to_char(double ** audio_f, uint8_t * audio, int audio_size);
+

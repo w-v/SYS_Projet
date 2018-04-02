@@ -6,6 +6,7 @@ int fdw;
 struct dest_infos server;
 int clip = 0;
 struct wav_params params;
+struct settings usettings;
 int main(int argc, char* argv[]){
 
   initscr();
@@ -14,7 +15,6 @@ int main(int argc, char* argv[]){
   nodelay(stdscr, TRUE);
   noecho();
   curs_set(0);
-
   if(argc<3){
     printf("\nUsage : \n\n audioguest server_hostname file_name \n\n");
     endwin();
@@ -22,14 +22,17 @@ int main(int argc, char* argv[]){
   }
 
   int wri;
-  short int volume_user = 190;
+  usettings.vol = 190;
+  usettings.eq_on = 0;
   //float qs[10] = {12000000,12000000,12000000,12000000,12000000,12000000,12000000,12000000,12000000,12000000};
 //  float qs[10] = {1,12,12,12,12,12,12,12,12,1};
-    float qs[10] = {2,2,2,2,2,2,2,2,2,2};
+  float qs[10] = {2,2,2,2,2,2,2,2,2,2};
 
   struct audio_packet packet;
   packet.header = 0;
   struct request req;
+  // last WIN_SIZE packets, for visualizing
+  uint8_t window[WIN_SIZE][BUF_SIZE]; 
 
   req.token = 0;
   req.req_n = 1;
@@ -72,18 +75,19 @@ int main(int argc, char* argv[]){
       req_until_ack(&req, sizeof(req), &packet, sizeof(packet), &server);
       req.req_n += 1;
 
-      get_input(&volume_user);
-      
-      equalize(packet.audio, BUF_SIZE);
+      get_input(&usettings);
+      mvprintw(0,0,"%d", usettings.eq_on);
+      if(usettings.eq_on)
+        equalize(packet.audio, BUF_SIZE);
 
-      change_volume(&packet, volume_user);
+      change_volume(&packet, usettings.vol);
   
       float volume_db[2] = {0,0};
       mesure_volume(volume_db, &packet);
 
       display_volume(volume_db, &packet);
 
-      visualize(packet.audio, BUF_SIZE);
+      visualize_window(packet.audio, window, req.req_n);
 
       if(argc == 3){
         wri = write(fdw, packet.audio , BUF_SIZE);
@@ -98,7 +102,7 @@ int main(int argc, char* argv[]){
       //printf("%d \n", packet.header);
 
     }while(packet.header != -1);
-    endwin();
+    clean_exit();
   }
 
   return 0;
@@ -133,8 +137,8 @@ int req_until_ack( struct request* req, short unsigned int rsize, struct audio_p
   tv.tv_usec = 0;
   FD_ZERO(&rfds);
 
-  // until a packet is received and it is the requested one
-  while(retval == 0 && !(FD_ISSET(infos->fd, &rfds)) && (packet->header != req->req_n)){
+  // until the requested packet or the EOF is received
+  while(packet->header != req->req_n && packet->header != -1){
 
     FD_ZERO(&rfds);
     FD_SET(infos->fd, &rfds);
@@ -142,7 +146,7 @@ int req_until_ack( struct request* req, short unsigned int rsize, struct audio_p
 
     // send a request
     send_packet(req, rsize, infos);
-    // printf("requesting packet %d with token %d \n",req->req_n, req->token);
+    printf("requesting packet %d with token %d \n",req->req_n, req->token);
 
 
     // wait until timeout or packet received
@@ -239,27 +243,29 @@ void change_volume(struct audio_packet * packet, int user_volume){
 
 }
 
-void get_input(short int * user_volume){
+void get_input(struct settings * usettings){
   int volume_delta = 5;
   int ch;
   switch (ch = getch()){
     case KEY_UP:
-      *user_volume += volume_delta;
+      usettings->vol += volume_delta;
       break;
     case KEY_DOWN:
-      *user_volume -= volume_delta;
+      usettings->vol -= volume_delta;
+      break;
+    case 'e':
+      usettings->eq_on = !usettings->eq_on;
       break;
     case 'q':
-      endwin();
-      exit(0);
+      clean_exit();
       break;
     default:
       break;
   }
-  if (*user_volume > 300)
-    *user_volume = 300;
-  else if (*user_volume < 0)
-    *user_volume = 0;
+  if (usettings->vol > 300)
+    usettings->vol = 300;
+  else if (usettings->vol < 0)
+    usettings->vol = 0;
 }
 
 void float_to_char(double ** audio_f, uint8_t * audio, int audio_size){
@@ -277,7 +283,7 @@ void float_to_char(double ** audio_f, uint8_t * audio, int audio_size){
       audio8 = (uint8_t *) audio;
   }
 
-  for(int c = 0; c < 2; c++){
+  for(int c = 0; c < params.channels; c++){
     for (int s = 0; s < nsmpls; s ++){
       if (abs(audio_f[c][s]) > 1){
         clip++;
@@ -324,12 +330,30 @@ void char_to_float(uint8_t * audio, int audio_size, double ** audio_f){
 
 }
 
+void visualize_window(uint8_t * crt_packet, uint8_t window[WIN_SIZE][BUF_SIZE], int packet_id){
+
+  // copy current packet at the end of the window
+  memcpy(&window[WIN_SIZE - 1], crt_packet, sizeof(window[0]));
+  if(packet_id > 1)
+    visualize((uint8_t *) window, BUF_SIZE*WIN_SIZE);
+
+  // shift window to the right (packets towards the start of the array)
+  for(int p = WIN_SIZE-1; p < 0; p--){
+    memcpy(&window[p-1], &window[p], sizeof(window[0]));
+  }
+
+}
 
 void visualize(uint8_t * audio, int audio_size){
   int nchans = params.channels;
   // number of samples per channel
   int nsmpls = audio_size / (params.sample_size/8) / params.channels;
   double window;
+  int w, h;
+  getmaxyx(stdscr, h, w);
+  w -= 3;
+  h-= 1;
+  double * fft_bins = (double *) malloc(sizeof(double)*w);
   double ** fft_in = (double **) malloc(nchans*sizeof(double*));
   for (int ch = 0; ch < params.channels ; ch++){
     fft_in[ch] = fftw_alloc_real(nsmpls);
@@ -343,7 +367,6 @@ void visualize(uint8_t * audio, int audio_size){
     }
   }
   fftw_complex * fft_out;
-  double fft_bins[nsmpls/2];
   fftw_plan plan;
   for (int i = 0; i < nchans; i++){
     fft_out = fftw_alloc_complex(nsmpls);
@@ -359,47 +382,66 @@ void visualize(uint8_t * audio, int audio_size){
     }
     
   }
+  fftw_free(fft_out);
   
   // max between channels
-  for (int j = 0; j < nsmpls / 2; j++){
+  for (int j = 0; j < nsmpls /2; j++){
     if(fft_in[0][j] < fft_in[1][j]){
-      fft_bins[j] = 20 * log10(fft_in[1][j]);
-    }
-    else {
-      fft_bins[j] = 20 * log10(fft_in[0][j]);
+      fft_in[0][j] = fft_in[1][j];
     }
   }
-
+  
+  log_scale(fft_in[0], nsmpls/2, fft_bins, w);
   for (int ch = 0; ch < params.channels ; ch++){
     fftw_free(fft_in[ch]);
   }
-  fftw_free(fft_out);
-
-  int w, h;
-  getmaxyx(stdscr, h, w);
-  w -= 3;
-  h-= 1;
-  
+  free(fft_in);
   clear();
   mvprintw(0,w-5,"clip:%d",clip);
   
-  for(int i = 0; i < nsmpls / 2; i++){
+  for(int i = 0; i < w; i++){
     
     // average BUF_SIZE bins into w bars
     /*for(int a = 0; a < bin_per_bar; a++){
       bar_h += fft_bins[i*bin_per_bar+a] / bin_per_bar;
     } */
     
-    int peak = h-(fft_bins[i]-20.f)*(-1.f)*(h/110.f);
+    int peak = h-(fft_bins[i]-30.f)*(-1.f)*(h/110.f);
     for(int r = 0; r < peak;r++ ){
       
       mvaddch(h-r,i+4, 'W');
 
     }
 
-
   }
+  free(fft_bins);
   refresh();
+  
+}
+
+void log_scale(double * unscaled, int size_unscaled, double * scaled, int size_scaled){
+  // frequency covered by one unscaled bin
+  double bin_range = params.sample_rate / 2 / (double) size_unscaled;
+  // constant for mapping frequency range (LOW_FREQHz to Nyquist freq.) into window
+  double c = (params.sample_rate/2/LOW_FREQ);
+  int s = 0;
+  double tg;
+  double tgg;
+  scaled[0] = 0;
+  for(int u = 0; u < size_unscaled; u++){
+    tg = LOW_FREQ*pow(c, (s/(double)size_scaled));
+    tgg = bin_range*u;
+    if( tgg > tg ){
+      if(scaled[s] != 0)
+        scaled[s] = 20 * log10(scaled[s]);
+      s++;
+      if(s >= size_scaled)
+        return;
+      scaled[s] = 0;
+    }
+    scaled[s] += unscaled[u];
+    
+  }
   
 }
 
@@ -440,63 +482,78 @@ void equalize(uint8_t * audio, int audio_size){
   float ffreq[10] = {31.5, 63, 125,250,500,1000,2000,4000,8000,16000};
   //float gains[10] = {10,10,10,10,10,10,10,10,10,10};
   //float gains[10] = {-1,-1,-1,-1,-1,-1,-1,-1,-1,-1};
-  //float gains[10] = {5,5,5,5,5,5,5,5,5,5};
+  //float gains[10] = {50,50,50,50,1,1,1,1,1,1};
   //float gains[10] = {0,0,0,2,2,2,2,2,2,2};
-  float gains[10] = {10,10,10,10,1,1,1,1,1,1};
+  //float gains[10] = {100,100,100,100,0.01,0.01,0.01,0.01,0.01,0.01};
+  //float gains[10]= {1,1,1,1,1,0.01,0.01,0.01,0.01,0.01};
+  //float gains[10]= {0.001,0.001,0.001,0.001,0.001,1,1,1,1,1};
   //                 o o o o o o x x x x 
   //float gains[10] = {-1,-1,-1,0,0,0,0,0,0,0};
+  float gains[10]= {1,1,10,10,10,1,1,1,1,1};
   //float gains[10] = {0,0,0,0,0,0,1,0,0,0};
-  float gains_offset[10]= {1,1,1,1,1,1,1,1,1};
+  float gains_offset[10]= {1,1,1,1,1,1,1,1,1,1};
+  //float qss[10] = {1,1,1,1,1,1,1,1,1,1};
   float qss[10] = {2,2,2,2,2,2,2,2,2,2};
   //float qss[10] = {0.5,0.5,0.5,0.5,0.5,0.5,0.5,0.5,0.5,0.5};
-  //float gains_sum = 0; 
+  //float qss[10] = {5,5,5,5,5,5,5,5,5,5};
+  float gains_sum = 0; 
+  int parallel = 1;
   for(int i = 0; i < 10; i++){
     gains[i] *= gains_offset[i];
-    //gains_sum += abs(gains[i]);
+    gains_sum += gains[i];
   }
-  
+
   struct filter_coeffs fc;
   float w0;
-  
-  
+
+
   float last3_orig[2][3];
 
   for(int c = 0; c < nchans; c++){
-      memcpy( &last3_orig[c], &last3[c], sizeof(last3[0]) );
+    memcpy( &last3_orig[c], &last3[c], sizeof(last3[0]) );
   }
-  
-  
 
-  for(int f = 0; f < 7; f++){
+
+
+  for(int f = 0; f < 10; f++){
     w0 = 2 * M_PI * ffreq[f] / params.sample_rate;
     fc.cos_w0 = cos(w0);
     fc.sin_w0 = sin(w0);
     fc.alpha = fc.sin_w0 / (2 * qss[f]);
-    fc.A = pow(10, ( ( 20*log10(gains[f]) ) /40 ));//0.31;//sqrt(gains[f]);
-    if (f == 18)
-      hpf(&fc);
-    else if (f == 19)
+    fc.A = pow(10, ( ( 20*log10(gains[f]) ) /20 ));//0.31;//sqrt(gains[f]);
+    if (f == 20)
       lpf(&fc);
+    else if (f == 29)
+      hpf(&fc);
     else
-      bpf(&fc);
+      peak(&fc);
     for(int c = 0; c < nchans; c++){ 
       memcpy( &last3[c], &last3_orig[c], sizeof(last3[0]) );
       for(int s = 0; s < nsmpls; s++){
         compute_apply_filter(&fc, audio_f[c][s], c, f);
         // parallel
-        audio_acc[c][s] = ( audio_acc[c][s] + (last3_mod[f][c][0] * gains[f]) ) ;//* 0.5;
+        //if(f == 0 || f == 9)
+        //  audio_acc[c][s] = ( audio_acc[c][s] + (last3_mod[f][c][0] * gains[f]) ) ;//* 0.5;
+        //else
+          //audio_acc[c][s] = ( audio_acc[c][s] + (last3_mod[f][c][0] ));//* gains[f]) ) ;//* 0.5;
+        
         // cascade
-        //audio_f[c][s] = last3_mod[f][c][0];// * gains[f];
+        if(parallel)
+          audio_acc[c][s] = ( audio_acc[c][s] + (last3_mod[f][c][0] ));
+        else
+          audio_f[c][s] = last3_mod[f][c][0];// * gains[f];
       }
     }
   }
-
   for(int c = 0; c < nchans; c++){
     for(int s = 0; s < nsmpls; s++){
-      audio_f[c][s] = audio_acc[c][s]*0.1;
+      if(parallel)
+        audio_f[c][s] = audio_acc[c][s]/gains_sum;
+      else
+        audio_f[c][s] = audio_f[c][s]*0.01;
     }
   }
-  
+
   float_to_char(audio_f, audio, audio_size);
   for (int ch = 0; ch < nchans; ch++){
     free(audio_f[ch]);

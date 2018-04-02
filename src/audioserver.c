@@ -1,7 +1,8 @@
 #include <audioserver.h>
 
 int main(){
-    recv_req(); 
+  signal(SIGPIPE, SIG_IGN);
+  recv_req(); 
 }
 
 int recv_req(){
@@ -16,7 +17,7 @@ int recv_req(){
   // they're equal to the write fd of the pipe
   // between this thread and the thread treating 
   // the client
-  
+
   // It does create a security problem, as anyone can try to send a token
   // inferior to his own a potentially get somebody else's packet
   // That's why ips_tokens keeps the link between ips and tokens
@@ -28,21 +29,20 @@ int recv_req(){
   while(1){
 
 
-    recv_packet(&req, sizeof(req), &client);
+    if(recv_packet(&req, sizeof(req), &client) == 1)
+      printf("could not recv packet\n");
 
-    //printf("received request for packet %d with token %d \n",req.req_n, req.token);
+    printf("received request for packet %d with token %d \n",req.req_n, req.token);
 
     if(req.token == 0){
       // client connection
-      printf("%s is connected",inet_ntoa(client.addr.sin_addr));
-      
+      printf("%s is connected \n",inet_ntoa(client.addr.sin_addr));
+
 
       // make a pipe to the thread treating the client
       if(pipe(fds) < 0){
         perror("Could not create pipe "); exit(1);
       }
-      
-      printf( "0: %d, 1: %d",fds[0],fds[1]);
 
       // make the thread treating the client
       pid = fork();
@@ -53,7 +53,7 @@ int recv_req(){
 
         close(fds[1]);
         treat_req(fds, &client, &req);
-        exit(0);
+        return 0;
 
       }
       else{
@@ -71,7 +71,10 @@ int recv_req(){
       
       if( ips_tokens[req.token] == client.addr.sin_addr.s_addr ){
       
-        write(req.token, &req, sizeof(req));
+        if(write(req.token, &req, sizeof(req)) < 0){
+          perror("could not write to file descriptor");
+        }
+        
       
       }
       else{
@@ -119,8 +122,6 @@ int treat_req(int* fds, struct dest_infos* client, struct request* req_guest){
       info[2] = 1;
     } 
 
-    printf("%d %d %d",info[0], info[1], info[2]);
-
     // assigning a token to the client
     info[3] = fds[1];
 
@@ -131,7 +132,9 @@ int treat_req(int* fds, struct dest_infos* client, struct request* req_guest){
 
     do{
 
-      read(fds[0], &req, sizeof(req));
+      if(read(fds[0], &req, sizeof(req)) < 0){
+        perror("Could not read file descriptor");
+      }
 
       if(packet.header + 1 == req.req_n){
         packet.header++;
@@ -166,15 +169,18 @@ int treat_req(int* fds, struct dest_infos* client, struct request* req_guest){
           }
         }
       }
-
-      send_packet(&packet, sizeof(packet), client);
-
+      
+      if(rea != 0){             // ugly fix
+        printf("sent packet %d to token %d\n",packet.header,fdr);
+        send_packet(&packet, sizeof(packet), client);
+      }
     } while (rea != 0);
 
     packet.header = -1;
 
+    printf("sent EOF %d to token %d\n",packet.header,fdr);
     send_packet(&packet, sizeof(packet), client);
-
+    close(fdr);
 
   }
   return 0;

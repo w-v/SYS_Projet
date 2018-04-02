@@ -24,13 +24,13 @@ obj/audio.o: src/audio.c
 obj/lecteur.o: src/lecteur.c
 	gcc $(CFLAGS) -I./include -c src/lecteur.c -o obj/lecteur.o
 
-obj/audioserver.o: src/audioserver.c
+obj/audioserver.o: src/audioserver.c include/audioserver.h
 	gcc $(CFLAGS) -I./include -c src/audioserver.c -o obj/audioserver.o
 
-obj/audioguest.o: src/audioguest.c
+obj/audioguest.o: src/audioguest.c include/audioguest.h
 	gcc $(CFLAGS) -I./include -c src/audioguest.c -o obj/audioguest.o -lncurses -lfftw3 -lm
 
-obj/socketlib.o: src/socketlib.c
+obj/socketlib.o: src/socketlib.c include/socketlib.h
 	gcc $(CFLAGS) -I./include -c src/socketlib.c -o obj/socketlib.o
 
 #
