@@ -23,17 +23,17 @@ int req_until_ack( struct request* req, short unsigned int rsize, struct audio_p
 
 char* resolv_hostname(const char *hostname); 
 
-void display_volume(float* volume_db, struct wav_params* params, struct audio_packet* packet);
+void display_volume(float* volume_db, struct audio_packet* packet);
 
-void mesure_volume(float* volume_db, struct wav_params* params, struct audio_packet* packet);
+void mesure_volume(float* volume_db, struct audio_packet* packet);
 
-void change_volume(struct audio_packet * packet, struct wav_params * params, int user_volume);
+void change_volume(struct audio_packet * packet, int user_volume);
 
 void get_input(short int * user_volume);
 
-void visualize_equalize(struct audio_packet * packet, struct wav_params * params, float* gain);
+void visualize_equalize(struct audio_packet * packet, float* gain);
 
-void visualize(double * channels_f[2], double channels_ft_out[2][256]);
+void visualize(uint8_t * audio, int audio_size);
 
 void clean_exit();
 
@@ -49,6 +49,7 @@ struct filter_coeffs {
   float alpha;
   float cos_w0;
   float sin_w0;
+  float A;
 
 };
 
@@ -60,5 +61,12 @@ void hpf(struct filter_coeffs*  fc);
 
 void lpf(struct filter_coeffs* fc);
 
-void equalize(double* channels_f[2], struct wav_params * params, float gains[10]);
+void peak(struct filter_coeffs* fc);
 
+void notch(struct filter_coeffs* fc);
+
+void equalize(uint8_t * audio, int audio_size);
+
+void char_to_float(uint8_t * audio, int audio_size, double ** audio_f);
+
+void float_to_char(double ** audio_f, uint8_t * audio, int audio_size);

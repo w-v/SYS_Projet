@@ -1,10 +1,11 @@
 #include <audioguest.h>
-float last_3_smpls[2][3];
-float last_3_modified_smpls[10][2][3];
+float last3[2][3];
+float last3_mod[10][2][3];
 
 int fdw;
 struct dest_infos server;
 int clip = 0;
+struct wav_params params;
 int main(int argc, char* argv[]){
 
   initscr();
@@ -29,7 +30,6 @@ int main(int argc, char* argv[]){
   struct audio_packet packet;
   packet.header = 0;
   struct request req;
-  struct wav_params params;
 
   req.token = 0;
   req.req_n = 1;
@@ -73,12 +73,17 @@ int main(int argc, char* argv[]){
       req.req_n += 1;
 
       get_input(&volume_user);
-      change_volume(&packet, &params, volume_user);
+      
+      equalize(packet.audio, BUF_SIZE);
+
+      change_volume(&packet, volume_user);
   
       float volume_db[2] = {0,0};
-      mesure_volume(volume_db, &params, &packet);
+      mesure_volume(volume_db, &packet);
 
-      visualize_equalize(&packet, &params, qs);
+      display_volume(volume_db, &packet);
+
+      visualize(packet.audio, BUF_SIZE);
 
       if(argc == 3){
         wri = write(fdw, packet.audio , BUF_SIZE);
@@ -87,7 +92,6 @@ int main(int argc, char* argv[]){
           clean_exit();
         }
       }
-      display_volume(volume_db, &params, &packet);
 
 
       usleep(delay[req.mono]);
@@ -174,9 +178,9 @@ char* resolv_hostname(const char *hostname) {
 }
 
 
-void display_volume(float* volume_db, struct wav_params* params, struct audio_packet* packet){
+void display_volume(float* volume_db, struct audio_packet* packet){
   int h = getmaxy(stdscr);
-  for(int ch = 0; ch < params->channels; ch++){
+  for(int ch = 0; ch < params.channels; ch++){
     int level = (volume_db[ch]+60)*(h/60.f);      // diplaying level from 0 to -60 dB
     //mvprintw(3+ch,0,"ch: %d level: %d",ch,level);refresh();
     for(int i = 0; i < level; ++i){
@@ -186,13 +190,13 @@ void display_volume(float* volume_db, struct wav_params* params, struct audio_pa
   refresh();
 }
 
-void mesure_volume(float* volume_db, struct wav_params* params, struct audio_packet* packet){
+void mesure_volume(float* volume_db, struct audio_packet* packet){
 
 
-  if (params->channels == 2){
+  if (params.channels == 2){
 
     // TODO : make another case for 8 bit signed, possibly 32 bit float
-    const int max_amp = pow(2,params->sample_size-1); 
+    const int max_amp = pow(2,params.sample_size-1); 
     int nsmpl = (BUF_SIZE / sizeof(int16_t)); 
     int16_t * smpl  = (int16_t *) packet->audio;
     int ch = 0;
@@ -203,11 +207,11 @@ void mesure_volume(float* volume_db, struct wav_params* params, struct audio_pac
         volume_db[ch] = smpl[i];
 
       // switch to other channel
-      ch = (ch + 1) % params->channels;
+      ch = (ch + 1) % params.channels;
     }
     //mvprintw(1,0,"vL: %f, vR: %f",volume_db[0],volume_db[1]);refresh();
 
-    for(int ch = 0; ch < params->channels; ch++){             // for each channel 
+    for(int ch = 0; ch < params.channels; ch++){             // for each channel 
 
       volume_db[ch] = 20.f*log10( volume_db[ch] / max_amp );      // convert sample value to dB level
     }
@@ -216,8 +220,8 @@ void mesure_volume(float* volume_db, struct wav_params* params, struct audio_pac
 
 }
 
-void change_volume(struct audio_packet * packet, struct wav_params * params, int user_volume){
-  if (params->channels == 2){
+void change_volume(struct audio_packet * packet, int user_volume){
+  if (params.channels == 2){
     float db = (((user_volume)/10.f)-20.f);
     float att = pow(10, (db / 20.f));
     //mvprintw(0,0,"u:%d db:%f att:%f",user_volume,db,att);
@@ -258,78 +262,118 @@ void get_input(short int * user_volume){
     *user_volume = 0;
 }
 
-void visualize_equalize(struct audio_packet * packet, struct wav_params * params, float qs[10]){
-  if (params->channels == 2){
-    int chan = 0;
-    double * channels_f[2];
-    double channels_ft_out[2][256];
-    const double max_amp = (pow(2, params->sample_size - 1) - 1); 
-    double window;                                      
-    int nsmpl = (BUF_SIZE / sizeof(int16_t)); 
-    int16_t * smpl  = (int16_t *) packet->audio;
-    for (int i = 0; i < 2; i++){
-      channels_f[i] = fftw_alloc_real(nsmpl / 2);
-    }
-    for (int i = 0; i < nsmpl; i++){
-      window = 0.5f*( 1-cos( (2 * M_PI * i)/(nsmpl - 1) ) );                         // Hann window 
-      channels_f[chan][i/2] = (smpl[i] / max_amp);// * window ;
-      chan = (chan + 1) % 2;
-    }
-    equalize(channels_f,params, qs);
-    for(int c = 0; c < 2; c++){
-      for (int s = 0; s < 512; s += 2){
-        int16_t tmp = (channels_f[c][s/2]) * max_amp;
-          if (abs(tmp) < max_amp)
-            smpl[s + c] = tmp;
-          else if (tmp > 0){
-            clip++;
-            smpl[s + c] = max_amp; 
-          }
-          else {
-            clip++;
-            smpl[s + c] = (-1) * max_amp; 
-          }
+void float_to_char(double ** audio_f, uint8_t * audio, int audio_size){
+  const int max_amp = (pow(2, params.sample_size - 1) - 1); 
+  // number of samples per channel
+  int nsmpls = audio_size / (params.sample_size/8) / params.channels;
+
+  int16_t * audio16;
+  uint8_t * audio8;
+  switch (params.sample_size){
+    case 16:
+      audio16 = (int16_t *) audio;
+      break;
+    case 8:
+      audio8 = (uint8_t *) audio;
+  }
+
+  for(int c = 0; c < 2; c++){
+    for (int s = 0; s < nsmpls; s ++){
+      if (abs(audio_f[c][s]) > 1){
+        clip++;
+        audio_f[c][s] = 1; 
+      }
+      switch (params.sample_size){
+        case 16:
+          audio16[s*params.channels + c] = (audio_f[c][s]) * max_amp;
+          break;
+        case 8:
+          audio8[s*params.channels + c] = (audio_f[c][s]) * max_amp;
       }
     }
-    visualize(channels_f,channels_ft_out);
   }
-  /*else {
-    float channels_FT [512];
-    float channels_f [1024];
-    for (int i = 0; i < BUF_SIZE; i++){
-      channels_f [packet->audio
-    }
-    visualizer();
-    equalizer();
-  }*/
 }
 
-void visualize(double * channels_f[2], double channels_ft_out[2][256]){
-  int nsmpl = (BUF_SIZE / sizeof(int16_t)); 
-  fftw_complex * channels_FT;
-  double channels_ft_out_db[128];
-  fftw_plan plan;
-  for (int i = 0; i < 2; i++){
-    channels_FT = fftw_alloc_complex(nsmpl/2);
-    for (int j = 0; j < (nsmpl / 2); j++){
-      channels_FT[j] = 0;
+void char_to_float(uint8_t * audio, int audio_size, double ** audio_f){
+  
+  const int max_amp = (pow(2, params.sample_size - 1) - 1); 
+  // number of samples per channel
+  int nsmpls = audio_size / (params.sample_size/8) / params.channels;
+
+  int16_t * audio16;
+  uint8_t * audio8;
+  switch (params.sample_size){
+    case 16:
+      audio16 = (int16_t *) audio;
+      break;
+    case 8:
+      audio8 = (uint8_t *) audio;
+  }
+
+  for(int ch = 0; ch < params.channels; ch++){
+    for (int s = 0; s < nsmpls; s++){
+      switch (params.sample_size){
+        case 16:
+          audio_f[ch][s] = (audio16[s*params.channels+ch] / (double) max_amp);
+          break;
+        case 8:
+          audio_f[ch][s] = (audio8[s*params.channels+ch] / (double) max_amp);
+      }
     }
-    plan = fftw_plan_dft_r2c_1d(nsmpl/2, channels_f[i], channels_FT, 0); 
+  }
+
+}
+
+
+void visualize(uint8_t * audio, int audio_size){
+  int nchans = params.channels;
+  // number of samples per channel
+  int nsmpls = audio_size / (params.sample_size/8) / params.channels;
+  double window;
+  double ** fft_in = (double **) malloc(nchans*sizeof(double*));
+  for (int ch = 0; ch < params.channels ; ch++){
+    fft_in[ch] = fftw_alloc_real(nsmpls);
+  }
+  char_to_float(audio, audio_size, fft_in);
+  for(int ch = 0; ch < nchans; ch++){
+    for (int s = 0; s < nsmpls; s++){
+      // Hann window (avoiding errors caused by the buffer being limited in size)
+      window = 0.5f*( 1-cos( (2 * M_PI * s)/(nsmpls - 1) ) );
+      fft_in[ch][s] *= window;
+    }
+  }
+  fftw_complex * fft_out;
+  double fft_bins[nsmpls/2];
+  fftw_plan plan;
+  for (int i = 0; i < nchans; i++){
+    fft_out = fftw_alloc_complex(nsmpls);
+    for (int j = 0; j < (nsmpls); j++){
+      fft_out[j] = 0;
+    }
+    plan = fftw_plan_dft_r2c_1d(nsmpls, fft_in[i], fft_out, 0); 
     fftw_execute(plan);
-    for (int j = 0; j < nsmpl / 2; j++){
-      channels_ft_out[i][j] = cabs(channels_FT[j]);
+    for (int j = 0; j < nsmpls; j++){
+      // complex absolute value in place calculation
+      // fft_in becomes the output
+      fft_in[i][j] = cabs(fft_out[j]);
     }
     
   }
   
-  for (int j = 0; j < nsmpl / 4; j++){
-    if(channels_ft_out[0][j] < channels_ft_out[1][j]){
-      channels_ft_out_db[j] = 20 * log10(channels_ft_out[0][j]);
+  // max between channels
+  for (int j = 0; j < nsmpls / 2; j++){
+    if(fft_in[0][j] < fft_in[1][j]){
+      fft_bins[j] = 20 * log10(fft_in[1][j]);
     }
     else {
-      channels_ft_out_db[j] = 20 * log10(channels_ft_out[0][j]);
+      fft_bins[j] = 20 * log10(fft_in[0][j]);
     }
   }
+
+  for (int ch = 0; ch < params.channels ; ch++){
+    fftw_free(fft_in[ch]);
+  }
+  fftw_free(fft_out);
 
   int w, h;
   getmaxyx(stdscr, h, w);
@@ -339,14 +383,14 @@ void visualize(double * channels_f[2], double channels_ft_out[2][256]){
   clear();
   mvprintw(0,w-5,"clip:%d",clip);
   
-  for(int i = 0; i < nsmpl / 4; i++){
+  for(int i = 0; i < nsmpls / 2; i++){
     
     // average BUF_SIZE bins into w bars
     /*for(int a = 0; a < bin_per_bar; a++){
-      bar_h += channels_ft_out_db[i*bin_per_bar+a] / bin_per_bar;
+      bar_h += fft_bins[i*bin_per_bar+a] / bin_per_bar;
     } */
     
-    int peak = h-(channels_ft_out_db[i]-20.f)*(-1.f)*(h/110.f);
+    int peak = h-(fft_bins[i]-20.f)*(-1.f)*(h/110.f);
     for(int r = 0; r < peak;r++ ){
       
       mvaddch(h-r,i+4, 'W');
@@ -370,7 +414,7 @@ void clean_exit(){
 
 }
 
-void equalize(double* channels_f[2], struct wav_params * params, float qs[10]){
+void equalize(uint8_t * audio, int audio_size){
   
 
   /* TODO
@@ -378,65 +422,88 @@ void equalize(double* channels_f[2], struct wav_params * params, float qs[10]){
    * MEMCPY MUFUCKA !!!!!!!!!!!!!!!
    *
    */
-
-  double channels_acc[2][256];
-  for(int c = 0; c < 2; c++){
-    for(int s = 0; s < 256; s++){
-      channels_acc[c][s] = channels_f[c][s];
+  int nchans = params.channels;
+  // number of samples per channel
+  int nsmpls = audio_size / (params.sample_size/8) / params.channels;
+  double ** audio_f = (double **) malloc(nchans*sizeof(double*));
+  double ** audio_acc = (double **) malloc(nchans*sizeof(double*));
+  for (int ch = 0; ch < nchans; ch++){
+    audio_f[ch] = malloc(nsmpls*sizeof(double)); 
+    audio_acc[ch] = malloc(nsmpls*sizeof(double)); 
+  }
+  char_to_float(audio, audio_size, audio_f);
+  for(int c = 0; c < nchans; c++){
+    for(int s = 0; s < nsmpls; s++){
+      audio_acc[c][s] = 0;//audio[c][s];
     }
   }
   float ffreq[10] = {31.5, 63, 125,250,500,1000,2000,4000,8000,16000};
-  float gains[10] = {1,1,1,1,1,1,1,1,1,1};
+  //float gains[10] = {10,10,10,10,10,10,10,10,10,10};
+  //float gains[10] = {-1,-1,-1,-1,-1,-1,-1,-1,-1,-1};
+  //float gains[10] = {5,5,5,5,5,5,5,5,5,5};
+  //float gains[10] = {0,0,0,2,2,2,2,2,2,2};
+  float gains[10] = {10,10,10,10,1,1,1,1,1,1};
+  //                 o o o o o o x x x x 
+  //float gains[10] = {-1,-1,-1,0,0,0,0,0,0,0};
+  //float gains[10] = {0,0,0,0,0,0,1,0,0,0};
+  float gains_offset[10]= {1,1,1,1,1,1,1,1,1};
+  float qss[10] = {2,2,2,2,2,2,2,2,2,2};
+  //float qss[10] = {0.5,0.5,0.5,0.5,0.5,0.5,0.5,0.5,0.5,0.5};
+  //float gains_sum = 0; 
+  for(int i = 0; i < 10; i++){
+    gains[i] *= gains_offset[i];
+    //gains_sum += abs(gains[i]);
+  }
   
   struct filter_coeffs fc;
   float w0;
   
   
-  float last_3_smpls_orig[2][3];
+  float last3_orig[2][3];
 
-  for(int c = 0; c < 2; c++){
-    for(int s = 0; s < 3; s++){
-      last_3_smpls_orig[c][s] = last_3_smpls[c][s];
-    }
+  for(int c = 0; c < nchans; c++){
+      memcpy( &last3_orig[c], &last3[c], sizeof(last3[0]) );
   }
   
   
 
-  for(int f = 0; f < 10; f++){
-
-    w0 = 2 * M_PI * ffreq[f] / params->sample_rate;
+  for(int f = 0; f < 7; f++){
+    w0 = 2 * M_PI * ffreq[f] / params.sample_rate;
     fc.cos_w0 = cos(w0);
     fc.sin_w0 = sin(w0);
-    fc.alpha = fc.sin_w0 / (2 * qs[f]);
-    if (f == 0)
+    fc.alpha = fc.sin_w0 / (2 * qss[f]);
+    fc.A = pow(10, ( ( 20*log10(gains[f]) ) /40 ));//0.31;//sqrt(gains[f]);
+    if (f == 18)
       hpf(&fc);
-    else if (f == 9)
+    else if (f == 19)
       lpf(&fc);
     else
       bpf(&fc);
-    for(int c = 0; c < params->channels; c++){ 
-      for(int s = 0; s < 256; s++){
-        compute_apply_filter(&fc, channels_f[c][s], c, f);
+    for(int c = 0; c < nchans; c++){ 
+      memcpy( &last3[c], &last3_orig[c], sizeof(last3[0]) );
+      for(int s = 0; s < nsmpls; s++){
+        compute_apply_filter(&fc, audio_f[c][s], c, f);
         // parallel
-        channels_acc[c][s] = channels_acc[c][s] + (last_3_modified_smpls[f][c][0]
-        * 1.8);
+        audio_acc[c][s] = ( audio_acc[c][s] + (last3_mod[f][c][0] * gains[f]) ) ;//* 0.5;
         // cascade
-        //channels_f[c][s] = last_3_modified_smpls[c][0];
-      }
-    }
-    for(int c = 0; c < 2; c++){
-      for(int s = 0; s < 3; s++){
-        last_3_smpls[c][s] = last_3_smpls_orig[c][s];
+        //audio_f[c][s] = last3_mod[f][c][0];// * gains[f];
       }
     }
   }
 
-  for(int c = 0; c < 2; c++){
-    for(int s = 0; s < 256; s++){
-      channels_f[c][s] = channels_acc[c][s] * 0.01;
+  for(int c = 0; c < nchans; c++){
+    for(int s = 0; s < nsmpls; s++){
+      audio_f[c][s] = audio_acc[c][s]*0.1;
     }
   }
   
+  float_to_char(audio_f, audio, audio_size);
+  for (int ch = 0; ch < nchans; ch++){
+    free(audio_f[ch]);
+    free(audio_acc[ch]);
+  }
+  free(audio_f);
+  free(audio_acc);
 }
 
 void bpf(struct filter_coeffs* fc){
@@ -464,15 +531,33 @@ void lpf(struct filter_coeffs* fc){
   fc->a2 =   1 - fc->alpha;
 }
 
+void notch(struct filter_coeffs* fc){
+  fc->b0 = 1;
+  fc->b1 = -2*fc->cos_w0;
+  fc->b2 = 1;
+  fc->a0 = 1 + fc->alpha;
+  fc->a1 = -2*fc->cos_w0;
+  fc->a2 = 1 - fc->alpha;
+}
+
+void peak(struct filter_coeffs* fc){
+  fc->b0 = 1 + fc->alpha*fc->A;
+  fc->b1 = -2*fc->cos_w0;
+  fc->b2 = 1 - fc->alpha*fc->A;
+  fc->a0 = 1 + fc->alpha/fc->A;
+  fc->a1 = -2*fc->cos_w0;
+  fc->a2 = 1 - fc->alpha/fc->A;
+}
+
 void compute_apply_filter(struct filter_coeffs* fc, float sample, int ch, int f){
-  last_3_smpls[ch][2] = last_3_smpls[ch][1];
-  last_3_smpls[ch][1] = last_3_smpls[ch][0];
-  last_3_smpls[ch][0] = sample;
-  last_3_modified_smpls[f][ch][2] = last_3_modified_smpls[f][ch][1];
-  last_3_modified_smpls[f][ch][1] = last_3_modified_smpls[f][ch][0];
-  last_3_modified_smpls[f][ch][0] = (fc->b0 / fc->a0 * last_3_smpls[ch][0]) +
-  (fc->b1 / fc->a0 * last_3_smpls[ch][1]) +
-  (fc->b2 / fc->a0 * last_3_smpls[ch][2]) -
-  (fc->a1 / fc->a0 * last_3_modified_smpls[f][ch][1]) -
-  (fc->a2 / fc->a0 * last_3_modified_smpls[f][ch][2]);
+  last3[ch][2] = last3[ch][1];
+  last3[ch][1] = last3[ch][0];
+  last3[ch][0] = sample;
+  last3_mod[f][ch][2] = last3_mod[f][ch][1];
+  last3_mod[f][ch][1] = last3_mod[f][ch][0];
+  last3_mod[f][ch][0] = (fc->b0 / fc->a0 * last3[ch][0]) +
+  (fc->b1 / fc->a0 * last3[ch][1]) +
+  (fc->b2 / fc->a0 * last3[ch][2]) -
+  (fc->a1 / fc->a0 * last3_mod[f][ch][1]) -
+  (fc->a2 / fc->a0 * last3_mod[f][ch][2]);
 }
