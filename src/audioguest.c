@@ -24,6 +24,10 @@ int main(int argc, char* argv[]){
   int wri;
   usettings.vol = 190;
   usettings.eq_on = 0;
+  usettings.eq_ui = 1;
+  for(int a = 0; a < N_FILTERS; a++){
+    usettings.eq_gains[a] = 0;
+  }
   //float qs[10] = {12000000,12000000,12000000,12000000,12000000,12000000,12000000,12000000,12000000,12000000};
 //  float qs[10] = {1,12,12,12,12,12,12,12,12,1};
   float qs[10] = {2,2,2,2,2,2,2,2,2,2};
@@ -88,6 +92,8 @@ int main(int argc, char* argv[]){
       display_volume(volume_db, &packet);
 
       visualize_window(packet.audio, window, req.req_n);
+      
+      draw_ui();
 
       if(argc == 3){
         wri = write(fdw, packet.audio , BUF_SIZE);
@@ -146,7 +152,7 @@ int req_until_ack( struct request* req, short unsigned int rsize, struct audio_p
 
     // send a request
     send_packet(req, rsize, infos);
-    printf("requesting packet %d with token %d \n",req->req_n, req->token);
+    //printf("requesting packet %d with token %d \n",req->req_n, req->token);
 
 
     // wait until timeout or packet received
@@ -243,18 +249,29 @@ void change_volume(struct audio_packet * packet, int user_volume){
 
 }
 
-void get_input(struct settings * usettings){
-  int volume_delta = 5;
+void get_input(){
   int ch;
   switch (ch = getch()){
+    case KEY_LEFT:
+      usettings.cursor--;
+      break;
+    case KEY_RIGHT:
+      usettings.cursor++;
+      break;
     case KEY_UP:
-      usettings->vol += volume_delta;
+      update_settings(+1, usettings.cursor);
       break;
     case KEY_DOWN:
-      usettings->vol -= volume_delta;
+      update_settings(-1, usettings.cursor);
+      break;
+    case '+':
+      update_settings(+1, CURS_VOL);
+      break;
+    case '-':
+      update_settings(-1, CURS_VOL);
       break;
     case 'e':
-      usettings->eq_on = !usettings->eq_on;
+      usettings.eq_on = !usettings.eq_on;
       break;
     case 'q':
       clean_exit();
@@ -262,11 +279,75 @@ void get_input(struct settings * usettings){
     default:
       break;
   }
-  if (usettings->vol > 300)
-    usettings->vol = 300;
-  else if (usettings->vol < 0)
-    usettings->vol = 0;
 }
+
+void update_settings(int d, int c){
+  switch(c){
+    case CURS_VOL:
+      usettings.vol+=VOL_STEP*d;
+      if (usettings.vol > MAX_VOL)
+        usettings.vol = MAX_VOL;
+      else if (usettings.vol < 0)
+        usettings.vol = 0;
+      break;
+    default:
+      usettings.eq_gains[c-CURS_EQ] += (EQ_MAX_GAIN/EQ_UI_H)*d;
+      if (usettings.eq_gains[c-CURS_EQ] > EQ_MAX_GAIN)
+        usettings.eq_gains[c-CURS_EQ] = EQ_MAX_GAIN;
+      else if (usettings.eq_gains[c-CURS_EQ] < -EQ_MAX_GAIN)
+        usettings.eq_gains[c-CURS_EQ] = -EQ_MAX_GAIN;
+  }
+}
+
+void draw_ui(){
+
+  int w, h, y, x;
+  getmaxyx(stdscr, h, w);
+  w-=1;
+  h-=1;
+  x = w;
+  y = 1;
+  const char *scale[5] = { "+40dB ", "+20dB ", "  0dB ", "-20dB ", "-40dB " };
+  int bar_h;  
+  int bar_w = EQ_UI_W/N_FILTERS;
+  int f,a,c;
+  char ch;
+  float d = EQ_UI_H/(EQ_MAX_GAIN*2.f);
+  // TODO : clear whats under
+  if(usettings.eq_ui){
+    x-=EQ_UI_W+6;
+    for(int i = 0; i < 5; i++){
+      mvprintw(y+EQ_UI_H*i/4.f,x,"%s",scale[i]);
+    }
+    x+=6;
+    for(f = 0; f < N_FILTERS; f++){
+      bar_h = ( EQ_MAX_GAIN+usettings.eq_gains[f] )*d;
+
+      for(a = 0; a < EQ_UI_H; a++){
+
+        if(a < bar_h+1){
+          if(usettings.cursor == CURS_EQ+f)
+            ch = 'O';
+          else
+            ch = 'H';
+        }
+        else {
+          ch = ' ';
+        }
+
+        for(c = 0; c < bar_w; c++){
+          mvaddch(y+EQ_UI_H-a,x+f*bar_w+c,ch);
+        }
+
+      }
+    
+    }
+  } 
+
+  refresh();
+ 
+}
+  
 
 void float_to_char(double ** audio_f, uint8_t * audio, int audio_size){
   const int max_amp = (pow(2, params.sample_size - 1) - 1); 
@@ -476,7 +557,7 @@ void equalize(uint8_t * audio, int audio_size){
   char_to_float(audio, audio_size, audio_f);
   for(int c = 0; c < nchans; c++){
     for(int s = 0; s < nsmpls; s++){
-      audio_acc[c][s] = 0;//audio[c][s];
+      audio_acc[c][s] = audio_f[c][s];
     }
   }
   float ffreq[10] = {31.5, 63, 125,250,500,1000,2000,4000,8000,16000};
@@ -499,7 +580,8 @@ void equalize(uint8_t * audio, int audio_size){
   float gains_sum = 0; 
   int parallel = 1;
   for(int i = 0; i < 10; i++){
-    gains[i] *= gains_offset[i];
+    //gains[i] *= gains_offset[i];
+    gains[i] = pow(10, usettings.eq_gains[i] /20.f );
     gains_sum += gains[i];
   }
 
@@ -520,7 +602,7 @@ void equalize(uint8_t * audio, int audio_size){
     fc.cos_w0 = cos(w0);
     fc.sin_w0 = sin(w0);
     fc.alpha = fc.sin_w0 / (2 * qss[f]);
-    fc.A = pow(10, ( ( 20*log10(gains[f]) ) /20 ));//0.31;//sqrt(gains[f]);
+    fc.A = gains[f];//0.31;//sqrt(gains[f]);
     if (f == 20)
       lpf(&fc);
     else if (f == 29)
@@ -548,9 +630,9 @@ void equalize(uint8_t * audio, int audio_size){
   for(int c = 0; c < nchans; c++){
     for(int s = 0; s < nsmpls; s++){
       if(parallel)
-        audio_f[c][s] = audio_acc[c][s]/gains_sum;
+        audio_f[c][s] = audio_acc[c][s] / N_FILTERS;// / (gains_sum*0.5);
       else
-        audio_f[c][s] = audio_f[c][s]*0.01;
+        audio_f[c][s] = audio_f[c][s];
     }
   }
 

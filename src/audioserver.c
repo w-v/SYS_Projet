@@ -1,7 +1,7 @@
 #include <audioserver.h>
 
 int main(){
-  signal(SIGPIPE, SIG_IGN);
+//  signal(SIGPIPE, SIG_IGN);
   recv_req(); 
 }
 
