@@ -22,15 +22,13 @@ int main(int argc, char* argv[]){
   }
 
   int wri;
-  usettings.vol = 190;
+  usettings.vol = 0;
   usettings.eq_on = 0;
   usettings.eq_ui = 1;
+  usettings.vol_ui = 1;
   for(int a = 0; a < N_FILTERS; a++){
     usettings.eq_gains[a] = 0;
   }
-  //float qs[10] = {12000000,12000000,12000000,12000000,12000000,12000000,12000000,12000000,12000000,12000000};
-//  float qs[10] = {1,12,12,12,12,12,12,12,12,1};
-  float qs[10] = {2,2,2,2,2,2,2,2,2,2};
 
   struct audio_packet packet;
   packet.header = 0;
@@ -43,10 +41,9 @@ int main(int argc, char* argv[]){
   strcpy(req.filename, argv[2]);
   //if (argv[3] == 0)
   req.mono = 0;
-  int delay[] =  {1000,10500};             // mono : 10ms, stereo : 1ms
-  //else
-  //  req.mono = 1;
-
+  int delay[] =  {1000,10500};             // between 2 writes to the speaker
+                                           // attempts to prevent the padsp broken pipe error
+                                           // mono : 10ms, stereo : 1ms
   socket_guest_init( &server, argv[1]);
 
   if (!send_packet(&req, sizeof(req), &server)){ 
@@ -84,16 +81,20 @@ int main(int argc, char* argv[]){
       if(usettings.eq_on)
         equalize(packet.audio, BUF_SIZE);
 
-      change_volume(&packet, usettings.vol);
+      change_volume(packet.audio, BUF_SIZE);
   
+
+      visualize_window(packet.audio, window, req.req_n);
+      refresh();
       float volume_db[2] = {0,0};
       mesure_volume(volume_db, &packet);
 
       display_volume(volume_db, &packet);
-
-      visualize_window(packet.audio, window, req.req_n);
+      refresh();
       
       draw_ui();
+      draw_controls();
+      refresh();
 
       if(argc == 3){
         wri = write(fdw, packet.audio , BUF_SIZE);
@@ -189,7 +190,8 @@ char* resolv_hostname(const char *hostname) {
 
 
 void display_volume(float* volume_db, struct audio_packet* packet){
-  int h = getmaxy(stdscr);
+  int h = getmaxy(stdscr)-3;
+  mvprintw(h+1,1,"LR");
   for(int ch = 0; ch < params.channels; ch++){
     int level = (volume_db[ch]+60)*(h/60.f);      // diplaying level from 0 to -60 dB
     //mvprintw(3+ch,0,"ch: %d level: %d",ch,level);refresh();
@@ -230,24 +232,23 @@ void mesure_volume(float* volume_db, struct audio_packet* packet){
 
 }
 
-void change_volume(struct audio_packet * packet, int user_volume){
-  if (params.channels == 2){
-    float db = (((user_volume)/10.f)-20.f);
-    float att = pow(10, (db / 20.f));
-    //mvprintw(0,0,"u:%d db:%f att:%f",user_volume,db,att);
+void change_volume(uint8_t * audio, int audio_size){
+  float vol_gain = pow(10, (usettings.vol / 20.f));
+  int16_t * audio16;
+  if (params.sample_size == 16)
+    audio16 = (int16_t *) audio;
 
-    // TODO : make another case for 8 bit signed, possibly 32 bit float
-    int nsmpl = (BUF_SIZE / sizeof(int16_t)); 
-    int16_t * smpl  = (int16_t *) packet->audio;
-
-    for (int i = 0; i < nsmpl; i++){
-      // change volume
-      smpl[i] *= att;
+  for (int s = 0; s < audio_size; s ++){
+    switch (params.sample_size){
+      case 16:
+        audio16[s] *= vol_gain;
+        break;
+      case 8:
+        audio[s] *= vol_gain;
     }
   }
-
-
 }
+
 
 void get_input(){
   int ch;
@@ -270,8 +271,14 @@ void get_input(){
     case '-':
       update_settings(-1, CURS_VOL);
       break;
-    case 'e':
+    case 'b':
       usettings.eq_on = !usettings.eq_on;
+      break;
+    case 'e':
+      usettings.eq_ui = !usettings.eq_ui;
+      break;
+    case 'v':
+      usettings.vol_ui = !usettings.vol_ui;
       break;
     case 'q':
       clean_exit();
@@ -287,11 +294,11 @@ void update_settings(int d, int c){
       usettings.vol+=VOL_STEP*d;
       if (usettings.vol > MAX_VOL)
         usettings.vol = MAX_VOL;
-      else if (usettings.vol < 0)
-        usettings.vol = 0;
+      else if (usettings.vol < -MAX_VOL)
+        usettings.vol = -MAX_VOL;
       break;
     default:
-      usettings.eq_gains[c-CURS_EQ] += (EQ_MAX_GAIN/EQ_UI_H)*d;
+      usettings.eq_gains[c-CURS_EQ] += (EQ_MAX_GAIN*2/EQ_UI_H)*d;
       if (usettings.eq_gains[c-CURS_EQ] > EQ_MAX_GAIN)
         usettings.eq_gains[c-CURS_EQ] = EQ_MAX_GAIN;
       else if (usettings.eq_gains[c-CURS_EQ] < -EQ_MAX_GAIN)
@@ -299,53 +306,90 @@ void update_settings(int d, int c){
   }
 }
 
+void draw_controls(){
+  int w, h, y, x;
+  getmaxyx(stdscr, h, w);
+  x = 4;
+  mvprintw(h-2,x,"EQ ON/OFF: B(ypass)\tSHOW EQ UI: E(Q)\tSHOW VOL UI: V(olume)\tSET VOL: +/-\n");
+  mvprintw(h-1,x,"NAVIGATE UI: LEFT/RIGHT\tSET GAINS: UP/DOWN\tEXIT: Q(uit)\n");
+  
+}
+
 void draw_ui(){
 
   int w, h, y, x;
   getmaxyx(stdscr, h, w);
-  w-=1;
-  h-=1;
+  w-=WIN_PADDING;
+  h-=WIN_PADDING;
   x = w;
-  y = 1;
-  const char *scale[5] = { "+40dB ", "+20dB ", "  0dB ", "-20dB ", "-40dB " };
+  y = WIN_PADDING;
+  const char *scaley[5] = { "+20dB ", "+10dB ", "  0dB ", "-10dB ", "-20dB " };
+  const char *scalex[N_FILTERS] = {" 30 ", " 65 ", "125 ", "250 ","500 ", " 1k ", " 2k ", " 4k ", " 8k ", "16k "};
   int bar_h;  
   int bar_w = EQ_UI_W/N_FILTERS;
   int f,a,c;
   char ch;
   float d = EQ_UI_H/(EQ_MAX_GAIN*2.f);
+  char eq_blanks[EQ_UI_W+EQ_SCALE_W+UI_PADDING+1];
+  char vol_blanks[VOL_UI_W+UI_PADDING+1];
   // TODO : clear whats under
   if(usettings.eq_ui){
-    x-=EQ_UI_W+6;
-    for(int i = 0; i < 5; i++){
-      mvprintw(y+EQ_UI_H*i/4.f,x,"%s",scale[i]);
+    x-= EQ_UI_W+EQ_SCALE_W;
+    memset(&eq_blanks, ' ', sizeof(eq_blanks));
+    eq_blanks[EQ_UI_W+EQ_SCALE_W+UI_PADDING] = '\0';
+    for(f = 0; f < EQ_UI_H+UI_PADDING+WIN_PADDING; f++)
+      mvprintw(y+f,x-1,"%s",eq_blanks);
+    for(int i = 0; i < 5; i++)
+      mvprintw(y+EQ_UI_H*i/4.f,x,"%s",scaley[i]);
+    x+=EQ_SCALE_W;
+    for(int i = 0; i < N_FILTERS; i++){
+      mvprintw(y+EQ_UI_H+1,x+i*4,"%s",scalex[i]);
     }
-    x+=6;
     for(f = 0; f < N_FILTERS; f++){
       bar_h = ( EQ_MAX_GAIN+usettings.eq_gains[f] )*d;
 
-      for(a = 0; a < EQ_UI_H; a++){
+      for(a = 0; a < bar_h+1; a++){
 
-        if(a < bar_h+1){
-          if(usettings.cursor == CURS_EQ+f)
-            ch = 'O';
-          else
-            ch = 'H';
-        }
-        else {
-          ch = ' ';
-        }
+        if(usettings.cursor == CURS_EQ+f)
+          ch = 'O';
+        else
+          ch = 'H';
 
         for(c = 0; c < bar_w; c++){
           mvaddch(y+EQ_UI_H-a,x+f*bar_w+c,ch);
         }
 
       }
-    
-    }
-  } 
 
-  refresh();
- 
+    }
+    x-= EQ_SCALE_W;
+  } 
+  if(usettings.vol_ui){
+    x-= VOL_UI_W+UI_PADDING;
+    memset(&vol_blanks, ' ', sizeof(vol_blanks));
+    vol_blanks[VOL_UI_W+UI_PADDING] = '\0';
+    for(f = 0; f < VOL_UI_H+3; f++)
+      mvprintw(y+f,x-1,"%s",vol_blanks);
+    mvprintw(y+VOL_UI_H+1,x,"VOL");
+    d = ( VOL_UI_H/(MAX_VOL*2.f) );
+    bar_h = ( MAX_VOL + usettings.vol ) * d;
+    for(a = 0; a < bar_h; a++){
+      if(a < bar_h+1){
+        if(usettings.cursor == CURS_VOL)
+          ch = 'O';
+        else
+          ch = 'H';
+      }
+      else {
+        ch = ' ';
+      }
+      for(c = 0; c < VOL_UI_W; c++){
+        mvaddch(y+VOL_UI_H-a,x+c,ch);
+      }
+    }
+
+  }
+
 }
   
 
@@ -416,11 +460,11 @@ void visualize_window(uint8_t * crt_packet, uint8_t window[WIN_SIZE][BUF_SIZE], 
   // copy current packet at the end of the window
   memcpy(&window[WIN_SIZE - 1], crt_packet, sizeof(window[0]));
   if(packet_id > 1)
-    visualize((uint8_t *) window, BUF_SIZE*WIN_SIZE);
+    visualize((uint8_t *) window+BUF_SIZE*1, BUF_SIZE*(WIN_SIZE-1));
 
   // shift window to the right (packets towards the start of the array)
-  for(int p = WIN_SIZE-1; p < 0; p--){
-    memcpy(&window[p-1], &window[p], sizeof(window[0]));
+  for(int p = WIN_SIZE-1; p > 0; p--){
+    memcpy(&window[p-1], &window[p], sizeof(window[0]));        // nasty stuff
   }
 
 }
@@ -433,7 +477,7 @@ void visualize(uint8_t * audio, int audio_size){
   int w, h;
   getmaxyx(stdscr, h, w);
   w -= 3;
-  h-= 1;
+  h-= 3;
   double * fft_bins = (double *) malloc(sizeof(double)*w);
   double ** fft_in = (double **) malloc(nchans*sizeof(double*));
   for (int ch = 0; ch < params.channels ; ch++){
@@ -457,7 +501,7 @@ void visualize(uint8_t * audio, int audio_size){
     plan = fftw_plan_dft_r2c_1d(nsmpls, fft_in[i], fft_out, 0); 
     fftw_execute(plan);
     for (int j = 0; j < nsmpls; j++){
-      // complex absolute value in place calculation
+      // complex absolute value calculation
       // fft_in becomes the output
       fft_in[i][j] = cabs(fft_out[j]);
     }
@@ -480,14 +524,14 @@ void visualize(uint8_t * audio, int audio_size){
   clear();
   mvprintw(0,w-5,"clip:%d",clip);
   
-  for(int i = 0; i < w; i++){
+  for(int i = 0; i < w-2; i++){
     
     // average BUF_SIZE bins into w bars
     /*for(int a = 0; a < bin_per_bar; a++){
       bar_h += fft_bins[i*bin_per_bar+a] / bin_per_bar;
     } */
     
-    int peak = h-(fft_bins[i]-30.f)*(-1.f)*(h/110.f);
+    int peak = h-(fft_bins[i]-30.f)*(-1.f)*(h/80.f);
     for(int r = 0; r < peak;r++ ){
       
       mvaddch(h-r,i+4, 'W');
@@ -561,22 +605,8 @@ void equalize(uint8_t * audio, int audio_size){
     }
   }
   float ffreq[10] = {31.5, 63, 125,250,500,1000,2000,4000,8000,16000};
-  //float gains[10] = {10,10,10,10,10,10,10,10,10,10};
-  //float gains[10] = {-1,-1,-1,-1,-1,-1,-1,-1,-1,-1};
-  //float gains[10] = {50,50,50,50,1,1,1,1,1,1};
-  //float gains[10] = {0,0,0,2,2,2,2,2,2,2};
-  //float gains[10] = {100,100,100,100,0.01,0.01,0.01,0.01,0.01,0.01};
-  //float gains[10]= {1,1,1,1,1,0.01,0.01,0.01,0.01,0.01};
-  //float gains[10]= {0.001,0.001,0.001,0.001,0.001,1,1,1,1,1};
-  //                 o o o o o o x x x x 
-  //float gains[10] = {-1,-1,-1,0,0,0,0,0,0,0};
   float gains[10]= {1,1,10,10,10,1,1,1,1,1};
-  //float gains[10] = {0,0,0,0,0,0,1,0,0,0};
-  float gains_offset[10]= {1,1,1,1,1,1,1,1,1,1};
-  //float qss[10] = {1,1,1,1,1,1,1,1,1,1};
   float qss[10] = {2,2,2,2,2,2,2,2,2,2};
-  //float qss[10] = {0.5,0.5,0.5,0.5,0.5,0.5,0.5,0.5,0.5,0.5};
-  //float qss[10] = {5,5,5,5,5,5,5,5,5,5};
   float gains_sum = 0; 
   int parallel = 1;
   for(int i = 0; i < 10; i++){

@@ -17,20 +17,26 @@
 
 #include <socketlib.h>
 
-#define WIN_SIZE        2
+#define WIN_SIZE        3
 #define LOW_FREQ        25
 
 #define N_FILTERS       10      
-#define EQ_MAX_GAIN     40
+#define EQ_MAX_GAIN     20
 
 #define CURS_VOL         0
 #define CURS_EQ          1
 
 #define EQ_UI_W         40
 #define EQ_UI_H         20
+#define EQ_SCALE_W      6
+#define UI_PADDING      2
+#define WIN_PADDING     1
 
-#define MAX_VOL         300
-#define VOL_STEP        5
+#define VOL_UI_W         3
+#define VOL_UI_H         20
+
+#define MAX_VOL         20
+#define VOL_STEP        2
 int socket_guest_init( struct dest_infos* server, char* hostname);
 
 int req_until_ack( struct request* req, short unsigned int rsize, struct audio_packet* packet, short unsigned int size, struct dest_infos* infos );
@@ -41,13 +47,14 @@ void display_volume(float* volume_db, struct audio_packet* packet);
 
 void mesure_volume(float* volume_db, struct audio_packet* packet);
 
-void change_volume(struct audio_packet * packet, int user_volume);
+void change_volume(uint8_t * audio, int audio_size);
 
 struct settings {
 
   short int vol;
   uint8_t eq_on;
   uint8_t eq_ui;
+  uint8_t vol_ui;
   int8_t eq_gains[N_FILTERS];
   
   uint8_t cursor;
@@ -59,6 +66,8 @@ void log_scale(double * unscaled, int size_unscaled, double * scaled, int size_s
 void get_input();
 
 void draw_ui();
+
+void draw_controls();
 
 void update_settings(int d, int c);
 
