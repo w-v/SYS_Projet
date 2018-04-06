@@ -23,7 +23,7 @@ void float_to_char(double ** audio_f, uint8_t * audio, int audio_size){
     for (int s = 0; s < nsmpls; s ++){
       if (fabs(audio_f[c][s]) > 1){
         audio_f[c][s] = audio_f[c][s]/fabs(audio_f[c][s]); 
-        is_clip=1;
+        is_clip=10;
       }
       switch (params.sample_size){
         case 16:

@@ -7,7 +7,9 @@
 
 void display_volume(float* volume_db, struct audio_packet* packet){
   int h = getmaxy(stdscr)-3;
+
   mvprintw(h+1,1,"LR");
+
   for(int ch = 0; ch < params.channels; ch++){
     int level = (volume_db[ch]+60)*(h/60.f);      // diplaying levels from 20 to -40 dB
     for(int i = 0; i < level; ++i){
@@ -51,7 +53,7 @@ void mesure_volume(float* volume_db, struct audio_packet* packet){
 }
 
 void change_volume(uint8_t * audio, int audio_size){
-  float vol_gain = pow(10, (usettings.vol / 20.f));
+  float vol_gain = pow(10, (usettings.vol / 20.f));             // convert to dB
   const int max_amp = (pow(2, params.sample_size - 1) - 1); 
   int16_t * audio16;
   if (params.sample_size == 16)
@@ -61,16 +63,16 @@ void change_volume(uint8_t * audio, int audio_size){
     switch (params.sample_size){
       case 16:
         audio16[s] *= vol_gain;
-        if(abs(audio16[s]) > max_amp){
+        if(abs(audio16[s]) > max_amp){          // clip
           audio16[s] = max_amp;
-          is_clip=1;
+          is_clip=10;
         }
         break;
       case 8:
         audio[s] *= vol_gain;
-        if(audio[s] > max_amp){
+        if(audio[s] > max_amp){                 // clip
           audio[s] = max_amp;
-          is_clip=1;
+          is_clip=10;
         }
     }
   }

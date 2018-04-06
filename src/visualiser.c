@@ -28,17 +28,26 @@ void visualize(uint8_t * audio, int audio_size){
   // number of samples per channel
   int nsmpls = audio_size / (params.sample_size/8) / params.channels;
   double window;
+
+  // get size of terminal window
   int w, h;
   getmaxyx(stdscr, h, w);
-  //w = 30;
+
+  //w = 15;
   w -= 3;
   h-= 3;
+
+  // fftw inputs and outputs
   double * fft_bins = (double *) malloc(sizeof(double)*w);
   double ** fft_in = (double **) malloc(nchans*sizeof(double*));
   for (int ch = 0; ch < params.channels ; ch++){
     fft_in[ch] = fftw_alloc_real(nsmpls);
   }
+
+  // convert samples to float
   char_to_float(audio, audio_size, fft_in);
+
+  // apply window
   for(int ch = 0; ch < nchans; ch++){
     for (int s = 0; s < nsmpls; s++){
       // Hann window (avoiding errors caused by the buffer being limited in size)
@@ -46,6 +55,8 @@ void visualize(uint8_t * audio, int audio_size){
       fft_in[ch][s] *= window;
     }
   }
+
+  
   fftw_complex * fft_out;
   fftw_plan plan;
   for (int i = 0; i < nchans; i++){
@@ -71,16 +82,11 @@ void visualize(uint8_t * audio, int audio_size){
     }
   }
   
-  log_scale(fft_in[0], nsmpls/2, fft_bins, w);
-  clear();
+  log_scale(fft_in[0], nsmpls/2, fft_bins, w);  // (try to) apply log scale
+  clear();                                      // clear terminal window
   
+  // display spectrum analyser
   for(int i = 0; i < w-2; i++){
-    
-    //fft_bins[i] = 20 * log10(fft_in[0][i]);
-    // average BUF_SIZE bins into w bars
-    /*for(int a = 0; a < bin_per_bar; a++){
-      bar_h += fft_bins[i*bin_per_bar+a] / bin_per_bar;
-    } */
     
     int peak = h-(fft_bins[i]-30.f)*(-1.f)*(h/80.f);
     for(int r = 0; r < peak;r++ ){
@@ -95,23 +101,21 @@ void visualize(uint8_t * audio, int audio_size){
   }
   free(fft_in);
   free(fft_bins);
-  refresh();
   
 }
-
 void log_scale(double * unscaled, int size_unscaled, double * scaled, int size_scaled){
   // frequency covered by one unscaled bin
   double bin_range = params.sample_rate / 2 / (double) size_unscaled;
   // constant for mapping frequency range (LOW_FREQHz to Nyquist freq.) into window
   double c = (params.sample_rate/2/LOW_FREQ);
   int s = 0;
-  double tg;
-  double tgg;
+  double a1;
+  double a2;
   scaled[0] = 0;
   for(int u = 0; u < size_unscaled; u++){
-    tg = LOW_FREQ*pow(c, (s/(double)size_scaled));
-    tgg = bin_range*u;
-    if( tgg > tg ){
+    a1 = LOW_FREQ*pow(c, (s/(double)size_scaled));
+    a2 = bin_range*u;
+    if( a2 > a1 ){
       if(scaled[s] != 0)
         scaled[s] = 20 * log10(scaled[s]);
       s++;

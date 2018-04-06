@@ -4,7 +4,7 @@ MONO/STEREO:
 
 Pour permettre au programme client de lire un fichier audio en mono, c'est celui
 ci qui envoie cette requête au serveur en même temps que le nom du
-fichier demandé
+fichier demandé.
 Le serveur va alors envoyer au programme client les paquets correspondant a sa
 requete. Pour ce faire, il va proceder de la manière suivante :
 Sur un paquet le programme serveur va trier les samples et selectionner uniquement
@@ -13,6 +13,8 @@ ceux correspondant au channel gauche. Ces  512 premiers samples vont ensuite
 buffer sera alors complété par 512 autres samples du channel gauche. Le buffer sera
 alors envoyé par le serveur au client pour être lu. Donc pour un paquet envoyé en
 mono, deux paquets sont lus en stéréo.
+L'utilisateur peut demander un fichier en mono en ajoutant l'argument "mono" après
+le nom du fichier
 
 VOLUME SONORE:
 
@@ -39,6 +41,9 @@ dernières valeurs originales et modifiées du paquet précedent doivent être sauve
 Le type integer signed sur 16 bits sert pour l'écriture des paquets pour être joué.
 Le type float est necessaire pour l'application des filtres. Il a fallu gerer les
 conversions de l'un à l'autre pour réaliser cet egaliseur.
+L'échelle horizontale du visualiseur n'est pas correcte, elle n'est pas réellement logarithmique.
+À cause d'une résolution trop faible, les premières bins sont espacées linéairement.
+Par manque de temps nous n'avons pas pu nous occuper de ce problème.
 
 Le visualiseur et l'interface ont été ralisé avec les librairies FFTW3 et NCURSES
 respectivement. Les touches suivantes permettent de realiser les actions suivantes:
@@ -50,6 +55,11 @@ respectivement. Les touches suivantes permettent de realiser les actions suivant
 -pour activer/desactiver l'egaliseur: 'B'
 -pour modifier le volume (peu importe où est le curseur) : '+' et '-'
 -pour quitter: 'Q'
+
+Le principe du protocole est inchangé depuis le dernier rendu. Des bugs ont été corrigés. 
+Ont égalemment été réalisées : la gestion des threads zombies, la fermeture des pipes et la
+ demande de fermeture de la "connexion" par le client (lors d'un crash, de la fin d'un morceau ou
+d'un "quit" de l'utilisateur)
 
 REFERENCES
 

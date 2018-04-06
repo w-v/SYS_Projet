@@ -32,6 +32,8 @@ struct settings usettings;
 int is_clip;
 int main(int argc, char* argv[]){
 
+  /*---ncurses initialisation---*/
+
   initscr();
   raw();
   keypad(stdscr, TRUE);
@@ -39,13 +41,17 @@ int main(int argc, char* argv[]){
   noecho();
   curs_set(0);
   start_color();
+  
+  /*----------------------------*/
+
+
   if(argc<3){
     printf("\nUsage : \n\n audioguest server_hostname file_name \n\n");
     endwin();
     clean_exit();
   }
 
-  int wri;
+  // initial user settings
   usettings.vol = 0;
   usettings.eq_on = 0;
   usettings.eq_ui = 1;
@@ -53,21 +59,23 @@ int main(int argc, char* argv[]){
   for(int a = 0; a < N_FILTERS; a++){
     usettings.eq_gains[a] = 0;
   }
+
   is_clip = 0;
+  int wri;
 
   struct audio_packet packet;
   packet.header = 0;
-  // last WIN_SIZE packets, for visualizing
-  uint8_t window[WIN_SIZE][BUF_SIZE]; 
+  
+  uint8_t window[WIN_SIZE][BUF_SIZE];   // last WIN_SIZE packets, for visualizing
 
-  req.token = 0;
+  req.token = 0;                        // new clients are identified by token 0
   req.req_n = 1;
   strcpy(req.filename, argv[2]);
-  //if (argv[3] == 0)
-  req.mono = 1;
+  req.mono = (argc == 4);
   int delay[] =  {1000,10000};             // between 2 writes to the speaker
                                            // attempts to prevent the padsp broken pipe error
                                            // mono : 10ms, stereo : 1ms
+
   socket_guest_init( &server, argv[1]);
 
   if (!send_packet(&req, sizeof(req), &server)){ 
@@ -84,9 +92,7 @@ int main(int argc, char* argv[]){
     params.sample_rate = info[0];
     params.sample_size = info[1];
 
-    if(argc == 3){
-      fdw = aud_writeinit(info[0],info[1],info[2]);
-    }
+    fdw = aud_writeinit(info[0],info[1],info[2]);
     if(fdw < 0){
       perror("Could not get speaker's file descriptor");
     }       
@@ -96,48 +102,46 @@ int main(int argc, char* argv[]){
 
     do{
 
+      // request paquet req.req_n
       req_until_ack(&req, sizeof(req), &packet, sizeof(packet), &server);
       req.req_n += 1;
-
-      get_input(&usettings);
-      mvprintw(0,0,"%d", usettings.eq_on);
+      
+      // apply equalize filter if it's on
       if(usettings.eq_on)
         equalize(packet.audio, BUF_SIZE);
 
-//      change_volume(packet.audio, BUF_SIZE);
+      change_volume(packet.audio, BUF_SIZE);
   
 
+      // display spectrum analyser
       visualize_window(packet.audio, window, req.req_n);
 
-      refresh();
+      draw_ui();
+      draw_controls();
+
+      refresh();                            // ncurses refresh
 
       if(is_clip)
         clip();
-      mvprintw(0,0,"%d", info[2]);
 
       float volume_db[2] = {0,0};
       mesure_volume(volume_db, &packet);
       display_volume(volume_db, &packet);
 
-      refresh();
-      
-      draw_ui();
-      draw_controls();
+      get_input(&usettings);                 // is done near refresh because it causesa refresh
       refresh();
 
-      if(argc == 3){
-        wri = write(fdw, packet.audio , BUF_SIZE);
-        if (wri < 0) {
-          perror("Could not write to speaker");
-          clean_exit();
-        }
+      // write to speaker
+      wri = write(fdw, packet.audio , BUF_SIZE);
+      if (wri < 0) {
+        perror("Could not write to speaker");
+        clean_exit();
       }
 
 
-      usleep(delay[req.mono]);
-      //printf("%d \n", packet.header);
+      usleep(delay[req.mono]);             // broken pipe error fix attempt
 
-    }while(packet.header != -1);
+    }while(packet.header != -1);           // EOF is not received
     clean_exit();
   }
 
@@ -182,7 +186,7 @@ int req_until_ack( struct request* req, short unsigned int rsize, struct audio_p
 
     // send a request
     send_packet(req, rsize, infos);
-    printf("requesting packet %d with token %d \n",req->req_n, req->token);
+    //printf("requesting packet %d with token %d \n",req->req_n, req->token);
 
 
     // wait until timeout or packet received
@@ -220,31 +224,31 @@ char* resolv_hostname(const char *hostname) {
 
 
 
+// displays a red CLIP when a filter causes arithmetic overflow
 void clip(){
   init_pair(1, COLOR_RED, COLOR_BLACK);
   attron(COLOR_PAIR(1));
   mvprintw(0,0,"CLIP");
   attroff(COLOR_PAIR(1));
-  is_clip = 0;
+  is_clip--;
 }
-
 
 
 void clean_exit(){
 
   struct audio_packet packet;
-  
+  // request end of connection  
   if (req.token != 0){
     // connection to server is established
     // try to end it
     req.req_n = -1;
     req_until_ack(&req, sizeof(req), &packet, sizeof(packet), &server);
   }
-  close(fdw);
-  close(server.fd);
+  close(fdw);                   // close speaker fd
+  close(server.fd);             // close socket fd
   printf("exiting... \n");
   sleep(1);                     // to be able to read perror before ncurses ends the window thus erasing the error message
-  endwin();
+  endwin();                     // end ncurses window
   exit(1);
 
 }

@@ -40,10 +40,10 @@ obj/ui.o: src/ui.c include/ui.h include/guestutils.h
 	gcc $(CFLAGS) -I./include -c src/ui.c -o obj/ui.o
 
 obj/visualiser.o: src/visualiser.c include/visualiser.h obj/smplutils.o include/guestutils.h
-	gcc $(CFLAGS) -I./include -c src/visualiser.c -o obj/visualiser.o obj/smplutils.o
+	gcc $(CFLAGS) -I./include -c src/visualiser.c -o obj/visualiser.o 
 
 obj/equaliser.o: src/equaliser.c include/equaliser.h obj/smplutils.o include/guestutils.h
-	gcc $(CFLAGS) -I./include -c src/equaliser.c -o obj/equaliser.o obj/smplutils.o
+	gcc $(CFLAGS) -I./include -c src/equaliser.c -o obj/equaliser.o 
 
 obj/smplutils.o: src/smplutils.c include/smplutils.h include/guestutils.h
 	gcc $(CFLAGS) -I./include -c src/smplutils.c -o obj/smplutils.o
