@@ -1,8 +1,24 @@
 #include <audioserver.h>
 
+unsigned int process_fd[MAX_GUESTS];
+
 int main(){
-//  signal(SIGPIPE, SIG_IGN);
+  //signal(SIGPIPE, SIG_IGN);
+  signal(SIGCHLD, close_fd);
   recv_req(); 
+}
+
+void close_fd(int sig){
+  pid_t pid;
+  int status;
+  while ((pid = waitpid(-1, &status, WNOHANG)) != -1){
+    //printf("caught broken pipe signal pid: %d\n", pid);
+    int i = 0;
+    while ((i < MAX_GUESTS) && (process_fd[i] != pid))
+      i++;
+    printf("closed fd : %d, pid : %d\n", i, pid);
+    close(i);
+  }
 }
 
 int recv_req(){
@@ -27,7 +43,6 @@ int recv_req(){
 
 
   while(1){
-
 
     if(recv_packet(&req, sizeof(req), &client) == 1)
       printf("could not recv packet\n");
@@ -58,7 +73,8 @@ int recv_req(){
       }
       else{
         //parent process
-        
+       	 
+	process_fd[fds[1]] = pid;
         close(fds[0]);
         ips_tokens[fds[1]] = client.addr.sin_addr.s_addr;
     
@@ -181,6 +197,7 @@ int treat_req(int* fds, struct dest_infos* client, struct request* req_guest){
     printf("sent EOF %d to token %d\n",packet.header,fdr);
     send_packet(&packet, sizeof(packet), client);
     close(fdr);
+    close(fds[0]);
 
   }
   return 0;

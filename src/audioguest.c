@@ -1,4 +1,6 @@
 #include <audioguest.h>
+#include <fftw3.h>
+
 float last3[2][3];
 float last3_mod[10][2][3];
 
@@ -153,7 +155,7 @@ int req_until_ack( struct request* req, short unsigned int rsize, struct audio_p
 
     // send a request
     send_packet(req, rsize, infos);
-    //printf("requesting packet %d with token %d \n",req->req_n, req->token);
+    printf("requesting packet %d with token %d \n",req->req_n, req->token);
 
 
     // wait until timeout or packet received
@@ -517,15 +519,12 @@ void visualize(uint8_t * audio, int audio_size){
   }
   
   log_scale(fft_in[0], nsmpls/2, fft_bins, w);
-  for (int ch = 0; ch < params.channels ; ch++){
-    fftw_free(fft_in[ch]);
-  }
-  free(fft_in);
   clear();
   mvprintw(0,w-5,"clip:%d",clip);
   
   for(int i = 0; i < w-2; i++){
     
+    //fft_bins[i] = 20 * log10(fft_in[0][i]);
     // average BUF_SIZE bins into w bars
     /*for(int a = 0; a < bin_per_bar; a++){
       bar_h += fft_bins[i*bin_per_bar+a] / bin_per_bar;
@@ -539,6 +538,10 @@ void visualize(uint8_t * audio, int audio_size){
     }
 
   }
+  for (int ch = 0; ch < params.channels ; ch++){
+    fftw_free(fft_in[ch]);
+  }
+  free(fft_in);
   free(fft_bins);
   refresh();
   
