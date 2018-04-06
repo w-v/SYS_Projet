@@ -1,4 +1,25 @@
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <audio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <netdb.h>
+#include <dirent.h> 
+#include <string.h>
+#include <signal.h>
+#include <sys/wait.h>
+
+#include <socketlib.h>
 #include <audioserver.h>
+#include <smplutils.h>
+
+unsigned int process_fd[MAX_GUESTS];
+struct wav_params params;
 
 unsigned int process_fd[MAX_GUESTS];
 
@@ -12,7 +33,6 @@ void close_fd(int sig){
   pid_t pid;
   int status;
   while ((pid = waitpid(-1, &status, WNOHANG)) != -1){
-    //printf("caught broken pipe signal pid: %d\n", pid);
     int i = 0;
     while ((i < MAX_GUESTS) && (process_fd[i] != pid))
       i++;
@@ -47,7 +67,7 @@ int recv_req(){
     if(recv_packet(&req, sizeof(req), &client) == 1)
       printf("could not recv packet\n");
 
-    printf("received request for packet %d with token %d \n",req.req_n, req.token);
+    //printf("received request for packet %d with token %d \n",req.req_n, req.token);
 
     if(req.token == 0){
       // client connection
@@ -90,21 +110,15 @@ int recv_req(){
         if(write(req.token, &req, sizeof(req)) < 0){
           perror("could not write to file descriptor");
         }
-        
       
       }
       else{
-
         printf("received wrong token from ip %s", inet_ntoa(client.addr.sin_addr));
-
       }
-
 
     }
     else {
-
       printf("token : %d was not recognized",req.token);
-
     }
 
 
@@ -113,12 +127,12 @@ int recv_req(){
 }
 
 
-int treat_req(int* fds, struct dest_infos* client, struct request* req_guest){
+int treat_req(int* fds, struct dest_infos* client, struct request* init_req){
   struct audio_packet packet;
   int rea;
   //TODO : chemin absolu
   char prefixe[134] = "audio/";
-  strcat(prefixe,req_guest->filename);
+  strcat(prefixe,init_req->filename);
   if(access(prefixe, F_OK) == -1){
     packet.header = -1;
     send_packet(&packet, sizeof(packet), client);
@@ -133,8 +147,13 @@ int treat_req(int* fds, struct dest_infos* client, struct request* req_guest){
       perror("Could not get speaker's file descriptor");
     }
 
+    
+    params.channels = info[2];
+    params.sample_rate = info[0];
+    params.sample_size = info[1];
+
     //mvprintw(0,1,"%d");
-    if(req_guest->mono == 1){
+    if(init_req->mono == 1){
       info[2] = 1;
     } 
 
@@ -145,52 +164,63 @@ int treat_req(int* fds, struct dest_infos* client, struct request* req_guest){
     send_packet(info, sizeof(info), client);
 
     packet.header = 0;
-
+    uint8_t tmp[BUF_SIZE];
+    int nsmpl = BUF_SIZE / (params.sample_size/8);
+    int16_t * audio16;
+    int16_t * tmp16;
     do{
 
       if(read(fds[0], &req, sizeof(req)) < 0){
         perror("Could not read file descriptor");
       }
 
-      if(packet.header + 1 == req.req_n){
+      // received end of connection request
+      if(req.req_n == -1){
+        packet.header = -1;
+      }
+      else if(packet.header + 1 == req.req_n){
         packet.header++;
-        if(req_guest->mono == 0){
+        if(init_req->mono && (params.channels == 2) ){
+          // asked for mono and file is stereo
+          // merge both channels into one
+          for(int b = 0; b < 2; b++){
+            rea = read(fdr, tmp, BUF_SIZE);
+            if (rea < 0) {
+              perror("Could not read wav file");
+              exit(1);
+            }
+            if(params.sample_size == 16){
+              tmp16 = (int16_t *) tmp;
+              audio16 = (int16_t *) packet.audio;
+            }
+            for(int s = 0; s < nsmpl/2; s++){        
+              switch(params.sample_size){
+                case 16:
+                  audio16[s+(nsmpl/2)*b] = tmp16[s*2];//*0.5f + tmp16[s*2+1]*0.5f;
+                  break;
+                case 8:
+                  packet.audio[s+(nsmpl/2)*b] = tmp[s*2]*0.5f + tmp[s*2+1]*0.5f;
+              }
+            }
+          }
+        }
+        else{
+          // did not ask for mono or already is
           rea = read(fdr, packet.audio, BUF_SIZE);
           if (rea < 0) {
             perror("Could not read wav file");
             exit(1);
           }
         }
-        else{
-          struct audio_packet tmp;
-          rea = read(fdr, tmp.audio, BUF_SIZE);
-          if (rea < 0) {
-            perror("Could not read wav file");
-            exit(1);
-          }
-          for (int i = 0; i < 512; i += (info[1]/8) ){
-            packet.audio[i] = tmp.audio[2 * i];
-            if(info[1] == 16)
-              packet.audio[i + 1] = tmp.audio[(2 * i) + 1];
-          }
-          rea = read(fdr, tmp.audio, BUF_SIZE);
-          if (rea < 0) {
-            perror("Could not read wav file");
-            exit(1);
-          }
-          for (int i = 0; i < 512; i += (info[1]/8) ){
-            packet.audio[512 + i] = tmp.audio[2 * i];
-            if(info[1] == 16)
-              packet.audio[512 + i + 1] = tmp.audio[(2 * i) + 1];
-          }
-        }
       }
-      
-      if(rea != 0){             // ugly fix
-        printf("sent packet %d to token %d\n",packet.header,fdr);
-        send_packet(&packet, sizeof(packet), client);
+
+      if(rea == 0){
+        packet.header = -1;
       }
-    } while (rea != 0);
+      //printf("sent packet %d to token %d\n",packet.header,fdr);
+      send_packet(&packet, sizeof(packet), client);
+
+    } while (rea != 0 && packet.header != -1);
 
     packet.header = -1;
 
