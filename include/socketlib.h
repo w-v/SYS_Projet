@@ -1,3 +1,6 @@
+#ifndef SOCKET_LIB_H
+#define SOCKET_LIB_H
+
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <audio.h>
@@ -14,7 +17,7 @@
 #include <sys/time.h>
 #include <math.h> 
 #include <complex.h> 
-#include <fftw3.h> 
+
 
 #define BUF_SIZE 1024
 
@@ -42,15 +45,9 @@ struct request {
 
 };
 
-struct wav_params {
-
-  unsigned short int channels;
-  unsigned short int sample_size;
-  int sample_rate;
-
-};
 
 int send_packet( void * packet, short unsigned int size, struct dest_infos * infos);
 
 int recv_packet( void * packet, short unsigned int size, struct dest_infos * infos);
 
+#endif
