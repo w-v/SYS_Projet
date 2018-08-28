@@ -1,6 +1,6 @@
 # audioserver
 
-![preview](w-v.fr/img/audioserver.png)
+![preview](http://w-v.fr/img/audioserver.png)
 
 This is a assignment we had in 3rd year of Rennes1's computer science degree  
 It's an audio server and client on linux, with the padsp library  
