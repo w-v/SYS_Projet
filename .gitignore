@@ -1,1 +1,6 @@
-/audio
+audio/
+bin/
+obj/
+bs/
+log
+v

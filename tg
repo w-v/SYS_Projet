@@ -8,7 +8,7 @@ fi
 
 ( bin/audioserver > log)& 
 
-bin/audioguest localhost test.wav
+padsp bin/audioguest localhost test.wav
 
 killall -9 bin/audioserver
 
